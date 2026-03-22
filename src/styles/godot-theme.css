@@ -1,0 +1,110 @@
+/**
+ * Godot 4.x–inspired editor palette: dark panels, subtle borders, readable contrast.
+ * Adjust CSS variables here to tweak the whole UI.
+ */
+:root {
+  --godot-bg-base: #1e1e1e;
+  --godot-bg-panel: #2d2d2d;
+  --godot-bg-panel-raised: #353535;
+  --godot-bg-input: #3c3c3c;
+  --godot-border: #252525;
+  --godot-border-focus: #5b9bd5;
+  --godot-text: #e0e0e0;
+  --godot-text-dim: #a0a0a0;
+  --godot-accent: #478cbf;
+  --godot-accent-hover: #5aa3d4;
+  --godot-selection: #3d5a80;
+  --godot-selection-text: #ffffff;
+  --godot-toolbar-h: 40px;
+  --font-ui: system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--godot-text);
+  background: var(--godot-bg-base);
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.godot-panel {
+  background: var(--godot-bg-panel);
+  border: 1px solid var(--godot-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.godot-panel-title {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--godot-text-dim);
+  background: var(--godot-bg-panel-raised);
+  border-bottom: 1px solid var(--godot-border);
+  user-select: none;
+}
+
+.godot-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.godot-panel-body--fill {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.godot-btn {
+  background: var(--godot-bg-input);
+  color: var(--godot-text);
+  border: 1px solid var(--godot-border);
+  border-radius: 2px;
+  padding: 6px 12px;
+}
+
+.godot-btn:hover {
+  border-color: var(--godot-accent);
+  background: var(--godot-bg-panel-raised);
+}
+
+.godot-btn:active {
+  background: var(--godot-bg-input);
+}
+
+.godot-btn-primary {
+  background: var(--godot-accent);
+  border-color: var(--godot-accent);
+  color: #fff;
+}
+
+.godot-btn-primary:hover {
+  background: var(--godot-accent-hover);
+  border-color: var(--godot-accent-hover);
+}

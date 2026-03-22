@@ -1,0 +1,96 @@
+/**
+ * Combines all loaded JSON-derived trees under one scene root node.
+ * Each file becomes a `type: "json"` child with its parsed subtree as descendants.
+ * Optional TUM trajectories are grouped under a dedicated `轨迹` node.
+ */
+
+import { jsonDocumentWrapperId, SCENE_ROOT_ID, TRAJECTORY_ROOT_ID } from "@/scene/constants";
+import type { SceneNode, Vec3 } from "@/scene/types";
+
+/** Minimal slice needed to assemble the combined scene (avoids importing the store here). */
+export interface DocumentSceneSlice {
+  readonly id: string;
+  readonly fileName: string;
+  /** Parsed JSON subtree only (no application scene root wrapper). */
+  readonly root: SceneNode;
+}
+
+/** One loaded TUM file → one polyline child under the trajectory root. */
+export interface TumTrajectorySceneSlice {
+  readonly id: string;
+  readonly fileName: string;
+  readonly color: string;
+  readonly pointsScene: readonly Vec3[];
+}
+
+export function tumTrajectoryToSceneNode(t: TumTrajectorySceneSlice): SceneNode {
+  return {
+    id: `tum-traj-${t.id}`,
+    name: t.fileName,
+    type: "polyline",
+    polylinePoints: t.pointsScene,
+    children: [],
+    payload: {
+      role: "tumTrajectory",
+      fileName: t.fileName,
+      color: t.color,
+      pointCount: t.pointsScene.length,
+    },
+  };
+}
+
+/**
+ * Place each JSON file's content on a coarse XZ grid so multiple large maps stay separated in 3D.
+ */
+function jsonFileGridPosition(index: number, total: number): Vec3 {
+  const cols = Math.ceil(Math.sqrt(Math.max(total, 1)));
+  const row = Math.floor(index / cols);
+  const col = index % cols;
+  const spacing = 20;
+  const offset = ((cols - 1) * spacing) / 2;
+  return [col * spacing - offset, 0, row * spacing - offset] as const;
+}
+
+/**
+ * Builds the single scene root whose children are one `json` node per loaded file,
+ * plus an optional `轨迹` group for TUM polylines.
+ */
+export function buildSceneGraphRoot(
+  documents: readonly DocumentSceneSlice[],
+  tumTrajectories: readonly TumTrajectorySceneSlice[] = [],
+): SceneNode {
+  const n = documents.length;
+  const jsonChildren: SceneNode[] = documents.map((d, index) => ({
+    id: jsonDocumentWrapperId(d.id),
+    name: d.fileName,
+    type: "json",
+    transform: {
+      position: jsonFileGridPosition(index, n),
+    },
+    children: [d.root],
+    payload: {
+      role: "jsonFile",
+      documentId: d.id,
+      fileName: d.fileName,
+    },
+  }));
+
+  const children: SceneNode[] = [...jsonChildren];
+  if (tumTrajectories.length > 0) {
+    children.push({
+      id: TRAJECTORY_ROOT_ID,
+      name: "轨迹",
+      type: "group",
+      children: tumTrajectories.map(tumTrajectoryToSceneNode),
+      payload: { role: "trajectoryRoot" },
+    });
+  }
+
+  return {
+    id: SCENE_ROOT_ID,
+    name: "场景",
+    type: "root",
+    children,
+    payload: { role: "sceneRoot" },
+  };
+}
