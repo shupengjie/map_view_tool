@@ -67,4 +67,13 @@ npm run preview
 4. **私有仓库**  
    GitHub Pages 对私有仓库的支持取决于你的计划；若不可用，可改用其它静态托管或改为公开仓库。
 
+5. **部署阶段报错 `deploy-pages` / `Creating Pages deployment failed` / `HttpError: Not Found` (404)**  
+   表示 **尚未在仓库里启用「通过 GitHub Actions 发布 Pages」**，或 **Source 仍不是 GitHub Actions**。请按顺序检查：  
+   - 打开 **Settings → Pages**。  
+   - **Build and deployment** 里 **Source** 必须选 **GitHub Actions**，不要选 *Deploy from a branch*，也不要处于未配置状态。  
+   - 若第一次使用，页面可能会列出可选工作流，选择与仓库内 **`.github/workflows/deploy-pages.yml`** 对应的流程并保存。  
+   - 再到 **Settings → Actions → General**，将 **Workflow permissions** 设为 **Read and write permissions**（部署 Pages 时常需要）。  
+   - 保存后回到 **Actions**，**重新运行**失败的工作流（或再 push 一次）。  
+   - 若仓库为 **私有**，请确认你的账号套餐是否允许对该仓库使用 GitHub Pages；否则可改为 **Public** 仓库再试。
+
 完成以上步骤后，每次推送到 `main`/`master` 都会自动更新线上站点。
