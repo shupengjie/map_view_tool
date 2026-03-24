@@ -131,6 +131,14 @@ export function SceneTreePanel() {
     setExpanded((prev) => toggleSetId(prev, id));
   }, []);
 
+  const collapseAll = useCallback(() => {
+    if (!root) {
+      return;
+    }
+    // Keep only scene root expanded so all descendants collapse in one action.
+    setExpanded(new Set([root.id]));
+  }, [root]);
+
   useEffect(() => {
     if (root) {
       setExpanded(new Set([root.id, ...root.children.map((c) => c.id)]));
@@ -173,18 +181,35 @@ export function SceneTreePanel() {
   return !root ? (
     <div className="inspector-empty">尚未加载场景。使用工具栏加载 JSON 或 TUM 轨迹。</div>
   ) : (
-    <div role="tree">
-      <TreeRows
-        node={root}
-        depth={0}
-        expanded={expanded}
-        onToggle={onToggle}
-        selectedId={selectedId}
-        onSelect={selectFromTree}
-        hiddenNodeIds={hiddenNodeIds}
-        activeRegionFilterId={activeRegionFilterId}
-        onToggleViewportVisibility={toggleViewportVisibility}
-      />
+    <div className="tree-panel-wrap">
+      <div className="tree-toolbar">
+        <button
+          type="button"
+          className="tree-toolbar-btn"
+          onClick={collapseAll}
+          title="一键折叠场景树"
+          aria-label="一键折叠场景树"
+        >
+          <svg className="tree-toolbar-icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+            <path d="M1 2.5h10v1H1zM1 5.5h10v1H1zM1 8.5h10v1H1z" fill="currentColor" />
+            <path d="M8 1l3 3H9v7H8V4H5z" fill="currentColor" />
+          </svg>
+          <span>一键折叠</span>
+        </button>
+      </div>
+      <div role="tree" className="tree-scroll">
+        <TreeRows
+          node={root}
+          depth={0}
+          expanded={expanded}
+          onToggle={onToggle}
+          selectedId={selectedId}
+          onSelect={selectFromTree}
+          hiddenNodeIds={hiddenNodeIds}
+          activeRegionFilterId={activeRegionFilterId}
+          onToggleViewportVisibility={toggleViewportVisibility}
+        />
+      </div>
     </div>
   );
 }

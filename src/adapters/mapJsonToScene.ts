@@ -6,7 +6,8 @@
  * `road_links` (per-link color + 道路边界线 left/right polylines).
  *
  * Coordinate mapping: JSON {x,y,z} with x=前, y=左, z=上 (vehicle / map frame).
- * Three.js Y-up scene: X=file x, Y=file z, Z=file y (ground plane XZ, elevation from file z on Y).
+ * Three.js Y-up scene: X=file x, Y=file z, Z=-file y.
+ * Note: negating file y avoids left/right mirroring and keeps handedness consistent in the viewport.
  */
 
 import type { SceneNode, Vec3 } from "@/scene/types";
@@ -47,16 +48,16 @@ export function isMapJsonRoot(value: unknown): value is Record<string, unknown> 
  * Single point from map file → Three.js scene (Y-up): ground plane XZ, Y = elevation from file z.
  */
 export function mapJsonPointToThree(p: { x: number; y: number; z: number }): Vec3 {
-  return [p.x, p.z, p.y] as const;
+  return [p.x, p.z, -p.y] as const;
 }
 
 /**
- * Direction vectors use the same axis permutation as positions (file x,y,z → scene x,z,y), then unit length.
+ * Direction vectors use the same permutation as positions (file x,y,z → scene x,z,-y), then unit length.
  */
 export function mapJsonDirectionToThree(d: { x: number; y: number; z: number }): Vec3 {
   const tx = d.x;
   const ty = d.z;
-  const tz = d.y;
+  const tz = -d.y;
   const len = Math.hypot(tx, ty, tz);
   if (len < 1e-10) {
     return [0, 1, 0];
@@ -198,6 +199,7 @@ interface RawRoadBoundary {
   readonly link_id?: unknown;
   readonly last_linked_RoadBoundary_ids?: unknown;
   readonly next_linked_RoadBoundary_ids?: unknown;
+  readonly ref_traj_points?: unknown;
   readonly road_boundary_left_points?: unknown;
   readonly road_boundary_right_points?: unknown;
 }
@@ -482,6 +484,7 @@ function parseRoadLinksLayer(raw: unknown): SceneNode[] {
     const rl = item as RawRoadLink;
     const colorHex = roadLinkLineColorHex(ri);
     const boundaryChildren: SceneNode[] = [];
+    const refTrajectoryChildren: SceneNode[] = [];
     const rbData = rl.road_boundarys_data;
     if (Array.isArray(rbData)) {
       for (let bi = 0; bi < rbData.length; bi++) {
@@ -502,26 +505,37 @@ function parseRoadLinksLayer(raw: unknown): SceneNode[] {
           last_linked_RoadBoundary_ids: bd.last_linked_RoadBoundary_ids,
           next_linked_RoadBoundary_ids: bd.next_linked_RoadBoundary_ids,
         };
-        if (leftPts && leftPts.length >= 2) {
-          boundaryChildren.push({
+        const refPts = parseArrowPoints(bd.ref_traj_points);
+        if (!leftPts && !rightPts) {
+          continue;
+        }
+        if (refPts && refPts.length >= 2) {
+          refTrajectoryChildren.push({
             id: newId(),
-            name: `左边界 ${boundaryId}`,
+            name: "参考轨迹线",
             type: "polyline",
             children: [],
-            polylinePoints: leftPts,
-            payload: { ...basePayload, side: "left" as const },
+            polylinePoints: refPts,
+            payload: {
+              role: "roadBoundaryRefTrajectory",
+              roadLinkColor: colorHex,
+              id: bd.id,
+              link_id: bd.link_id,
+            },
           });
         }
-        if (rightPts && rightPts.length >= 2) {
-          boundaryChildren.push({
-            id: newId(),
-            name: `右边界 ${boundaryId}`,
-            type: "polyline",
-            children: [],
-            polylinePoints: rightPts,
-            payload: { ...basePayload, side: "right" as const },
-          });
-        }
+        boundaryChildren.push({
+          id: newId(),
+          name: `边界线 ${boundaryId}`,
+          type: "polyline",
+          children: [],
+          payload: {
+            ...basePayload,
+            side: "both" as const,
+            leftBoundaryPoints: leftPts ?? [],
+            rightBoundaryPoints: rightPts ?? [],
+          },
+        });
       }
     }
     const roadLinkId = typeof rl.id === "number" ? rl.id : ri;
@@ -529,7 +543,7 @@ function parseRoadLinksLayer(raw: unknown): SceneNode[] {
       id: newId(),
       name: "道路边界线",
       type: "group",
-      children: boundaryChildren,
+      children: [...boundaryChildren, ...refTrajectoryChildren],
       payload: { role: "roadBoundaryRoot", roadLinkColor: colorHex },
     };
     nodes.push({

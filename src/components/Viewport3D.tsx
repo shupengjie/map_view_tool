@@ -6,10 +6,10 @@
 import { CameraFocusSync } from "@/components/CameraFocusSync";
 import { useEditorStore } from "@/store/useEditorStore";
 import { buildArrowPolygonFillGeometry } from "@/scene/arrowPolygonFill";
-import type { SceneNode } from "@/scene/types";
+import type { SceneNode, Vec3 } from "@/scene/types";
 import { Canvas, type ThreeEvent, useFrame } from "@react-three/fiber";
-import { Billboard, GizmoHelper, GizmoViewport, Grid, Line, OrbitControls, Text } from "@react-three/drei";
-import { useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { Billboard, Edges, GizmoHelper, GizmoViewport, Grid, Line, OrbitControls, Text } from "@react-three/drei";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { DoubleSide } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { Vector3Tuple } from "three";
@@ -19,6 +19,103 @@ function vec3Or(a: readonly [number, number, number] | undefined, d: Vector3Tupl
     return d;
   }
   return [a[0], a[1], a[2]];
+}
+
+function asVec3List(value: unknown): Vec3[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (v): v is Vec3 =>
+      Array.isArray(v) &&
+      v.length === 3 &&
+      typeof v[0] === "number" &&
+      typeof v[1] === "number" &&
+      typeof v[2] === "number",
+  );
+}
+
+const LINE_HOVER_COLOR = "#7aaeff";
+const MIN_HIT_WIDTH = 8;
+const HIT_SCALE = 6;
+const SELECT_BASE_COLOR = "#00d4ff";
+
+interface PickableLineProps {
+  readonly nodeId: string;
+  readonly points: readonly Vec3[];
+  readonly color: string;
+  readonly lineWidth: number;
+  readonly isSelected: boolean;
+  readonly selectedPulse: number;
+  readonly onSelect: (e: ThreeEvent<MouseEvent>) => void;
+}
+
+/**
+ * Two-layer line picking:
+ * - visible line keeps intended styling
+ * - transparent fat line improves hit test area, with distance-adaptive width
+ */
+function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPulse, onSelect }: PickableLineProps) {
+  const [hovered, setHovered] = useState(false);
+  const hitWidth = Math.max(lineWidth * HIT_SCALE, MIN_HIT_WIDTH);
+
+  const selectedEdgeColor = selectedPulse > 0.5 ? "#ffea00" : "#ff3b9a";
+  const visibleColor = isSelected ? SELECT_BASE_COLOR : hovered ? LINE_HOVER_COLOR : color;
+  const visibleWidth = hovered && !isSelected ? lineWidth * 1.25 : lineWidth;
+
+  return (
+    <>
+      <Line
+        userData={{ nodeId }}
+        points={points}
+        color={visibleColor}
+        lineWidth={visibleWidth}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          setHovered(true);
+        }}
+        onPointerOut={(e) => {
+          e.stopPropagation();
+          setHovered(false);
+        }}
+        onClick={onSelect}
+      />
+      {isSelected ? (
+        <Line
+          userData={{ nodeId }}
+          points={points}
+          color={selectedEdgeColor}
+          lineWidth={Math.max(visibleWidth * (1.6 + selectedPulse * 0.6), visibleWidth + 1.5)}
+          transparent
+          opacity={0.78 + selectedPulse * 0.22}
+          depthTest={false}
+          renderOrder={998}
+        />
+      ) : null}
+      <Line
+        userData={{ nodeId }}
+        points={points}
+        color="#ffffff"
+        lineWidth={hitWidth}
+        transparent
+        opacity={0.001}
+        depthTest={false}
+        renderOrder={999}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+        }}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          setHovered(true);
+        }}
+        onPointerOut={(e) => {
+          e.stopPropagation();
+          setHovered(false);
+        }}
+        onClick={onSelect}
+      />
+    </>
+  );
 }
 
 interface SceneNodeViewProps {
@@ -50,14 +147,21 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
   const isPolyline = node.type === "polyline";
   const isParkingSlot = node.type === "parkingSlot";
   const isPillar = node.type === "pillar";
+  const isVolumeGeometry = isPillar || isMesh;
   const pts = node.polylinePoints;
   const rectRole = node.payload?.role as "bump" | "crossWalk" | undefined;
   const isLaneLine = node.payload?.role === "laneLine";
   const isRoadBoundaryLine = node.payload?.role === "roadBoundaryLine";
+  const isRoadBoundaryRefTrajectory = node.payload?.role === "roadBoundaryRefTrajectory";
   const isTumTrajectory = node.payload?.role === "tumTrajectory";
   const isSelected = selectedId === node.id;
+  const [selectedPulse, setSelectedPulse] = useState(0);
   const payload = node.payload as Record<string, unknown> | undefined;
   const centerScene = payload?.centerScene as Vector3Tuple | undefined;
+  const mergedLeftBoundaryPoints = asVec3List(payload?.leftBoundaryPoints);
+  const mergedRightBoundaryPoints = asVec3List(payload?.rightBoundaryPoints);
+  const hasMergedRoadBoundary =
+    isRoadBoundaryLine && (mergedLeftBoundaryPoints.length >= 2 || mergedRightBoundaryPoints.length >= 2);
   const regionIdVal = payload?.regionID;
   const hiddenByRegionFilter =
     activeRegionFilterId !== null &&
@@ -65,14 +169,14 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
     regionIdVal !== activeRegionFilterId;
 
   const quadFillGeo = useMemo(() => {
-    if (!pts || pts.length < 3 || isLaneLine || isRoadBoundaryLine || isTumTrajectory) {
+    if (!pts || pts.length < 3 || isLaneLine || isRoadBoundaryLine || isRoadBoundaryRefTrajectory || isTumTrajectory) {
       return null;
     }
     if (isPolyline || isParkingSlot) {
       return buildArrowPolygonFillGeometry(pts);
     }
     return null;
-  }, [pts, isLaneLine, isRoadBoundaryLine, isParkingSlot, isPolyline, isTumTrajectory]);
+  }, [pts, isLaneLine, isRoadBoundaryLine, isRoadBoundaryRefTrajectory, isParkingSlot, isPolyline, isTumTrajectory]);
 
   useEffect(() => {
     return () => {
@@ -80,37 +184,93 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
     };
   }, [quadFillGeo]);
 
+  useFrame((state) => {
+    if (!isSelected) {
+      if (selectedPulse !== 0) {
+        setSelectedPulse(0);
+      }
+      return;
+    }
+    const p = (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.5;
+    setSelectedPulse(p);
+  });
+
+  const selectedEdgeColor = selectedPulse > 0.5 ? "#ffea00" : "#ff3b9a";
+
   if (hidden || hiddenByRegionFilter) {
     return null;
   }
 
   return (
     <group userData={{ nodeId: node.id }} position={position} scale={scale} rotation={rotation}>
-      {isPolyline && isRoadBoundaryLine && pts && pts.length >= 2 ? (
-        <Line
-          userData={{ nodeId: node.id }}
+      {isPolyline && hasMergedRoadBoundary ? (
+        <>
+          {mergedLeftBoundaryPoints.length >= 2 ? (
+            <PickableLine
+              nodeId={node.id}
+              points={mergedLeftBoundaryPoints}
+              color={String(payload?.roadLinkColor ?? "#cccccc")}
+              lineWidth={isSelected ? 3 : 1.5}
+              isSelected={isSelected}
+              selectedPulse={selectedPulse}
+              onSelect={onMeshClick}
+            />
+          ) : null}
+          {mergedRightBoundaryPoints.length >= 2 ? (
+            <PickableLine
+              nodeId={node.id}
+              points={mergedRightBoundaryPoints}
+              color={String(payload?.roadLinkColor ?? "#cccccc")}
+              lineWidth={isSelected ? 3 : 1.5}
+              isSelected={isSelected}
+              selectedPulse={selectedPulse}
+              onSelect={onMeshClick}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {isPolyline && isRoadBoundaryLine && !hasMergedRoadBoundary && pts && pts.length >= 2 ? (
+        <PickableLine
+          nodeId={node.id}
           points={pts}
-          color={isSelected ? "#478cbf" : String(payload?.roadLinkColor ?? "#cccccc")}
+          color={String(payload?.roadLinkColor ?? "#cccccc")}
           lineWidth={isSelected ? 3 : 1.5}
-          onClick={onMeshClick}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          onSelect={onMeshClick}
         />
       ) : null}
       {isPolyline && isLaneLine && pts && pts.length >= 2 ? (
-        <Line
-          userData={{ nodeId: node.id }}
+        <PickableLine
+          nodeId={node.id}
           points={pts}
-          color={isSelected ? "#478cbf" : "#ffffff"}
+          color="#ffffff"
           lineWidth={isSelected ? 3 : 1.5}
-          onClick={onMeshClick}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          onSelect={onMeshClick}
         />
       ) : null}
       {isPolyline && isTumTrajectory && pts && pts.length >= 2 ? (
-        <Line
-          userData={{ nodeId: node.id }}
+        <PickableLine
+          nodeId={node.id}
           points={pts}
-          color={isSelected ? "#478cbf" : String(payload?.color ?? "#e74c3c")}
+          color={String(payload?.color ?? "#e74c3c")}
           lineWidth={isSelected ? 3.5 : 2.25}
-          onClick={onMeshClick}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          onSelect={onMeshClick}
+        />
+      ) : null}
+      {isPolyline && isRoadBoundaryRefTrajectory && pts && pts.length >= 2 ? (
+        <PickableLine
+          nodeId={node.id}
+          points={pts}
+          color={String(payload?.roadLinkColor ?? "#cccccc")}
+          lineWidth={isSelected ? 9 : 4.5}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          onSelect={onMeshClick}
         />
       ) : null}
       {isPolyline && !isLaneLine && quadFillGeo ? (
@@ -118,7 +278,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
           <meshStandardMaterial
             color={
               isSelected
-                ? "#478cbf"
+                ? SELECT_BASE_COLOR
                 : rectRole === "bump"
                   ? "#6ec96e"
                   : rectRole === "crossWalk"
@@ -128,10 +288,10 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
             metalness={0.08}
             roughness={0.55}
             emissive={
-              isSelected ? "#1a3a55" : rectRole === "bump" ? "#0a2a0a" : rectRole === "crossWalk" ? "#202830" : "#2a1a05"
+              isSelected ? selectedEdgeColor : rectRole === "bump" ? "#0a2a0a" : rectRole === "crossWalk" ? "#202830" : "#2a1a05"
             }
             emissiveIntensity={
-              isSelected ? 0.25 : rectRole === "bump" ? 0.1 : rectRole === "crossWalk" ? 0.06 : 0.12
+              isSelected ? 0.45 + selectedPulse * 0.4 : rectRole === "bump" ? 0.1 : rectRole === "crossWalk" ? 0.06 : 0.12
             }
             side={DoubleSide}
           />
@@ -146,7 +306,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
             renderOrder={0}
           >
             <meshStandardMaterial
-              color={isSelected ? "#478cbf" : "#5a9fd4"}
+              color={isSelected ? SELECT_BASE_COLOR : "#5a9fd4"}
               metalness={0.06}
               roughness={0.5}
               transparent
@@ -156,15 +316,15 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
             />
           </mesh>
           {[0, 1, 2, 3].map((i) => (
-            <Line
+            <PickableLine
               key={i}
-              userData={{ nodeId: node.id }}
+              nodeId={node.id}
               points={[pts[i]!, pts[(i + 1) % 4]!]}
-              color={isSelected ? "#478cbf" : "#ffffff"}
+              color="#ffffff"
               lineWidth={isSelected ? 2.5 : 2}
-              onClick={onMeshClick}
-              renderOrder={2}
-              depthTest
+              isSelected={isSelected}
+              selectedPulse={selectedPulse}
+              onSelect={onMeshClick}
             />
           ))}
           {centerScene ? (
@@ -199,25 +359,34 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
         >
           <boxGeometry args={[payload.length, payload.height, payload.width]} />
           <meshStandardMaterial
-            color={isSelected ? "#478cbf" : "#8a9aac"}
+            color={isSelected ? SELECT_BASE_COLOR : "#8a9aac"}
             metalness={0.08}
             roughness={0.52}
             transparent
             opacity={0.9}
             depthWrite={false}
             side={DoubleSide}
+            emissive={isSelected ? selectedEdgeColor : "#000000"}
+            emissiveIntensity={isSelected ? 0.45 + selectedPulse * 0.35 : 0}
           />
+          {isSelected && isVolumeGeometry ? (
+            <Edges scale={1.03} threshold={8} color={selectedEdgeColor} />
+          ) : null}
         </mesh>
       ) : null}
       {isMesh ? (
         <mesh userData={{ nodeId: node.id }} onClick={onMeshClick}>
           <boxGeometry args={[0.7, 0.7, 0.7]} />
           <meshStandardMaterial
-            color={isSelected ? "#478cbf" : "#a8a8a8"}
+            color={isSelected ? SELECT_BASE_COLOR : "#a8a8a8"}
             metalness={0.12}
             roughness={0.65}
-            emissive={isSelected ? "#1a3a55" : "#1a1a1a"}
+            emissive={isSelected ? selectedEdgeColor : "#1a1a1a"}
+            emissiveIntensity={isSelected ? 0.35 + selectedPulse * 0.35 : 1}
           />
+          {isSelected && isVolumeGeometry ? (
+            <Edges scale={1.05} threshold={8} color={selectedEdgeColor} />
+          ) : null}
         </mesh>
       ) : null}
       {node.children.map((c) => (
@@ -255,10 +424,10 @@ function SceneContent() {
         sectionColor="#4f6fa8"
         position={[0, 0, 0]}
       />
-      {/* Gizmo matches JSON axes via mapJsonPointToThree: scene X=file x(前), Y=file z(上), Z=file y(左) */}
+      {/* Gizmo follows mapJsonPointToThree: scene X=file x(前), Y=file z(上), Z=-file y(右) */}
       <GizmoHelper alignment="top-right" margin={[72, 72]}>
         <GizmoViewport
-          labels={["X", "Z", "-Y"]}
+          labels={["前", "上", "右"]}
           axisColors={["#ff4b4b", "#7bed4b", "#4ba3ff"]}
           labelColor="#e8e8e8"
         />

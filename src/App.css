@@ -43,6 +43,55 @@
   display: block;
 }
 
+.tree-panel-wrap {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tree-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--godot-border);
+  background: var(--godot-bg-panel-raised);
+}
+
+.tree-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--godot-border);
+  border-radius: 2px;
+  background: var(--godot-bg-input);
+  color: var(--godot-text);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tree-toolbar-btn:hover {
+  border-color: var(--godot-accent);
+  background: var(--godot-bg-panel-raised);
+}
+
+.tree-toolbar-icon {
+  display: block;
+  opacity: 0.9;
+}
+
+.tree-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 .tree-row {
   display: flex;
   align-items: center;
