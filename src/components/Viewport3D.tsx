@@ -47,6 +47,7 @@ interface PickableLineProps {
   readonly lineWidth: number;
   readonly isSelected: boolean;
   readonly selectedPulse: number;
+  readonly disabled: boolean;
   readonly onSelect: (e: ThreeEvent<MouseEvent>) => void;
 }
 
@@ -55,7 +56,7 @@ interface PickableLineProps {
  * - visible line keeps intended styling
  * - transparent fat line improves hit test area, with distance-adaptive width
  */
-function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPulse, onSelect }: PickableLineProps) {
+function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPulse, disabled, onSelect }: PickableLineProps) {
   const [hovered, setHovered] = useState(false);
   const hitWidth = Math.max(lineWidth * HIT_SCALE, MIN_HIT_WIDTH);
 
@@ -72,13 +73,25 @@ function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPu
         lineWidth={visibleWidth}
         onPointerOver={(e) => {
           e.stopPropagation();
+          if (disabled) {
+            return;
+          }
           setHovered(true);
         }}
         onPointerOut={(e) => {
           e.stopPropagation();
+          if (disabled) {
+            return;
+          }
           setHovered(false);
         }}
-        onClick={onSelect}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (disabled) {
+            return;
+          }
+          onSelect(e);
+        }}
       />
       {isSelected ? (
         <Line
@@ -106,13 +119,25 @@ function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPu
         }}
         onPointerOver={(e) => {
           e.stopPropagation();
+          if (disabled) {
+            return;
+          }
           setHovered(true);
         }}
         onPointerOut={(e) => {
           e.stopPropagation();
+          if (disabled) {
+            return;
+          }
           setHovered(false);
         }}
-        onClick={onSelect}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (disabled) {
+            return;
+          }
+          onSelect(e);
+        }}
       />
     </>
   );
@@ -120,28 +145,27 @@ function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPu
 
 interface SceneNodeViewProps {
   readonly node: SceneNode;
+  readonly ancestorHidden?: boolean;
+}
+
+interface SceneNodeViewContentProps {
+  readonly node: SceneNode;
+  readonly isSelected: boolean;
+  readonly selectedPulse: number;
+  readonly ancestorHidden: boolean;
 }
 
 /**
  * Recursively mounts groups and pickable placeholder meshes for the logical scene graph.
  */
-function SceneNodeView({ node }: SceneNodeViewProps) {
+function SceneNodeViewContent({ node, isSelected, selectedPulse, ancestorHidden }: SceneNodeViewContentProps) {
   const setSelectedNodeId = useEditorStore((s) => s.setSelectedNodeId);
-  const selectedId = useEditorStore((s) => s.selectedNodeId);
   const hidden = useEditorStore((s) => s.hiddenNodeIds.has(node.id));
   const activeRegionFilterId = useEditorStore((s) => s.activeRegionFilterId);
 
   const position = useMemo(() => vec3Or(node.transform?.position, [0, 0, 0]), [node.transform?.position]);
   const scale = useMemo(() => vec3Or(node.transform?.scale, [1, 1, 1]), [node.transform?.scale]);
   const rotation = useMemo(() => vec3Or(node.transform?.rotation, [0, 0, 0]), [node.transform?.rotation]);
-
-  const onMeshClick = useCallback(
-    (e: ThreeEvent<MouseEvent>) => {
-      e.stopPropagation();
-      setSelectedNodeId(node.id);
-    },
-    [node.id, setSelectedNodeId],
-  );
 
   const isMesh = node.type === "mesh";
   const isPolyline = node.type === "polyline";
@@ -154,12 +178,12 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
   const isRoadBoundaryLine = node.payload?.role === "roadBoundaryLine";
   const isRoadBoundaryRefTrajectory = node.payload?.role === "roadBoundaryRefTrajectory";
   const isTumTrajectory = node.payload?.role === "tumTrajectory";
-  const isSelected = selectedId === node.id;
-  const [selectedPulse, setSelectedPulse] = useState(0);
   const payload = node.payload as Record<string, unknown> | undefined;
   const centerScene = payload?.centerScene as Vector3Tuple | undefined;
-  const mergedLeftBoundaryPoints = asVec3List(payload?.leftBoundaryPoints);
-  const mergedRightBoundaryPoints = asVec3List(payload?.rightBoundaryPoints);
+  const leftBoundaryPointsRaw = payload?.leftBoundaryPoints;
+  const rightBoundaryPointsRaw = payload?.rightBoundaryPoints;
+  const mergedLeftBoundaryPoints = useMemo(() => asVec3List(leftBoundaryPointsRaw), [leftBoundaryPointsRaw]);
+  const mergedRightBoundaryPoints = useMemo(() => asVec3List(rightBoundaryPointsRaw), [rightBoundaryPointsRaw]);
   const hasMergedRoadBoundary =
     isRoadBoundaryLine && (mergedLeftBoundaryPoints.length >= 2 || mergedRightBoundaryPoints.length >= 2);
   const regionIdVal = payload?.regionID;
@@ -167,6 +191,10 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
     activeRegionFilterId !== null &&
     typeof regionIdVal === "number" &&
     regionIdVal !== activeRegionFilterId;
+
+  const disabledByRegion = hiddenByRegionFilter;
+  const nodeHidden = ancestorHidden || hidden;
+  const nodeDisabled = nodeHidden || disabledByRegion;
 
   const quadFillGeo = useMemo(() => {
     if (!pts || pts.length < 3 || isLaneLine || isRoadBoundaryLine || isRoadBoundaryRefTrajectory || isTumTrajectory) {
@@ -184,25 +212,42 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
     };
   }, [quadFillGeo]);
 
-  useFrame((state) => {
-    if (!isSelected) {
-      if (selectedPulse !== 0) {
-        setSelectedPulse(0);
+  const onMeshClick = useCallback(
+    (e: ThreeEvent<MouseEvent>) => {
+      e.stopPropagation();
+      // Even if we keep objects mounted for perf, hidden nodes must not be selectable.
+      if (nodeDisabled) {
+        return;
       }
-      return;
-    }
-    const p = (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.5;
-    setSelectedPulse(p);
-  });
+      setSelectedNodeId(node.id);
+    },
+    [nodeDisabled, node.id, setSelectedNodeId],
+  );
 
   const selectedEdgeColor = selectedPulse > 0.5 ? "#ffea00" : "#ff3b9a";
 
-  if (hidden || hiddenByRegionFilter) {
-    return null;
-  }
+  const visible = !nodeDisabled;
+
+  const parkingSlotEdgeSegments = useMemo(() => {
+    if (!pts || pts.length < 4) {
+      return [];
+    }
+    return [
+      [pts[0]!, pts[1]!],
+      [pts[1]!, pts[2]!],
+      [pts[2]!, pts[3]!],
+      [pts[3]!, pts[0]!],
+    ] as const;
+  }, [pts]);
 
   return (
-    <group userData={{ nodeId: node.id }} position={position} scale={scale} rotation={rotation}>
+    <group
+      userData={{ nodeId: node.id }}
+      position={position}
+      scale={scale}
+      rotation={rotation}
+      visible={visible}
+    >
       {isPolyline && hasMergedRoadBoundary ? (
         <>
           {mergedLeftBoundaryPoints.length >= 2 ? (
@@ -214,6 +259,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
               isSelected={isSelected}
               selectedPulse={selectedPulse}
               onSelect={onMeshClick}
+              disabled={nodeDisabled}
             />
           ) : null}
           {mergedRightBoundaryPoints.length >= 2 ? (
@@ -225,6 +271,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
               isSelected={isSelected}
               selectedPulse={selectedPulse}
               onSelect={onMeshClick}
+              disabled={nodeDisabled}
             />
           ) : null}
         </>
@@ -238,6 +285,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
           isSelected={isSelected}
           selectedPulse={selectedPulse}
           onSelect={onMeshClick}
+          disabled={nodeDisabled}
         />
       ) : null}
       {isPolyline && isLaneLine && pts && pts.length >= 2 ? (
@@ -249,6 +297,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
           isSelected={isSelected}
           selectedPulse={selectedPulse}
           onSelect={onMeshClick}
+          disabled={nodeDisabled}
         />
       ) : null}
       {isPolyline && isTumTrajectory && pts && pts.length >= 2 ? (
@@ -260,6 +309,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
           isSelected={isSelected}
           selectedPulse={selectedPulse}
           onSelect={onMeshClick}
+          disabled={nodeDisabled}
         />
       ) : null}
       {isPolyline && isRoadBoundaryRefTrajectory && pts && pts.length >= 2 ? (
@@ -271,6 +321,7 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
           isSelected={isSelected}
           selectedPulse={selectedPulse}
           onSelect={onMeshClick}
+          disabled={nodeDisabled}
         />
       ) : null}
       {isPolyline && !isLaneLine && quadFillGeo ? (
@@ -315,16 +366,17 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
               side={DoubleSide}
             />
           </mesh>
-          {[0, 1, 2, 3].map((i) => (
+          {parkingSlotEdgeSegments.map((seg, i) => (
             <PickableLine
               key={i}
               nodeId={node.id}
-              points={[pts[i]!, pts[(i + 1) % 4]!]}
+              points={seg as unknown as Vec3[]}
               color="#ffffff"
               lineWidth={isSelected ? 2.5 : 2}
               isSelected={isSelected}
               selectedPulse={selectedPulse}
               onSelect={onMeshClick}
+              disabled={nodeDisabled}
             />
           ))}
           {centerScene ? (
@@ -390,10 +442,39 @@ function SceneNodeView({ node }: SceneNodeViewProps) {
         </mesh>
       ) : null}
       {node.children.map((c) => (
-        <SceneNodeView key={c.id} node={c} />
+        <SceneNodeView key={c.id} node={c} ancestorHidden={nodeHidden} />
       ))}
     </group>
   );
+}
+
+function SceneNodeViewAnimated({ node, ancestorHidden }: SceneNodeViewProps) {
+  const [selectedPulse, setSelectedPulse] = useState(0);
+
+  useFrame((state) => {
+    const p = (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.5;
+    setSelectedPulse(p);
+  });
+
+  return (
+    <SceneNodeViewContent
+      node={node}
+      isSelected
+      selectedPulse={selectedPulse}
+      ancestorHidden={ancestorHidden ?? false}
+    />
+  );
+}
+
+function SceneNodeView({ node, ancestorHidden = false }: SceneNodeViewProps) {
+  const selectedId = useEditorStore((s) => s.selectedNodeId);
+  const isSelected = selectedId === node.id;
+
+  if (!isSelected) {
+    return <SceneNodeViewContent node={node} isSelected={false} selectedPulse={0} ancestorHidden={ancestorHidden} />;
+  }
+
+  return <SceneNodeViewAnimated node={node} ancestorHidden={ancestorHidden} />;
 }
 
 function SceneContent() {

@@ -103,7 +103,9 @@ export function computeBumpQuadVertices(
   const L = mapJsonDirectionToThree(longDirection);
   const W = mapJsonDirectionToThree(wideDirection);
   const E = mapJsonPointToThree(endPt);
-  const S: Vec3 = [E[0] - L[0] * length, E[1] - L[1] * length, E[2] - L[2] * length];
+  // Note: if JSON `longDirection` points from end->start, the correct start edge becomes `E + L*length`.
+  // Using `S = E + L*length` makes `endPt` reliably map to the "end" short edge in the rendered quad.
+  const S: Vec3 = [E[0] + L[0] * length, E[1] + L[1] * length, E[2] + L[2] * length];
   const hw = halfWidth;
   const pSm: Vec3 = [S[0] - W[0] * hw, S[1] - W[1] * hw, S[2] - W[2] * hw];
   const pSp: Vec3 = [S[0] + W[0] * hw, S[1] + W[1] * hw, S[2] + W[2] * hw];

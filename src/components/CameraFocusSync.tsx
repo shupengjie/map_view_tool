@@ -15,6 +15,10 @@ function computeFocusCenter(scene: Object3D, nodeId: string): Vector3 | null {
   const loose: Vector3[] = [];
 
   scene.traverse((obj) => {
+    // Keep behavior consistent with the viewport: hidden objects shouldn't be focus targets.
+    if (obj.visible === false) {
+      return;
+    }
     if (obj.userData?.nodeId !== nodeId) {
       return;
     }
