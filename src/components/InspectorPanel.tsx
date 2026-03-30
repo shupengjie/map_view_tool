@@ -397,7 +397,9 @@ function InspectorContent({
 }) {
   return (
     <div className="inspector-godot">
-      {node.type === "pillar" && node.payload ? (
+      {node.type === "mapFrameAxes" || node.type === "sceneBackgroundGrid" ? (
+        <div className="inspector-empty">该节点无属性。</div>
+      ) : node.type === "pillar" && node.payload ? (
         <PillarInspector sourceFile={sourceFile} payload={node.payload as Record<string, unknown>} />
       ) : node.type === "group" && node.payload && (node.payload as Record<string, unknown>).role === "roadLink" ? (
         <RoadLinkInspector sourceFile={sourceFile} payload={node.payload as Record<string, unknown>} />

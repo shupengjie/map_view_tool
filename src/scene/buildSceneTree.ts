@@ -4,7 +4,13 @@
  * Optional TUM trajectories are grouped under a dedicated `轨迹` node.
  */
 
-import { jsonDocumentWrapperId, SCENE_ROOT_ID, TRAJECTORY_ROOT_ID } from "@/scene/constants";
+import {
+  jsonDocumentWrapperId,
+  MAP_FRAME_AXES_NODE_ID,
+  SCENE_BACKGROUND_GRID_NODE_ID,
+  SCENE_ROOT_ID,
+  TRAJECTORY_ROOT_ID,
+} from "@/scene/constants";
 import type { SceneNode, Vec3 } from "@/scene/types";
 
 /** Minimal slice needed to assemble the combined scene (avoids importing the store here). */
@@ -75,7 +81,21 @@ export function buildSceneGraphRoot(
     },
   }));
 
-  const children: SceneNode[] = [...jsonChildren];
+  const backgroundGridNode: SceneNode = {
+    id: SCENE_BACKGROUND_GRID_NODE_ID,
+    name: "背景网格",
+    type: "sceneBackgroundGrid",
+    children: [],
+  };
+
+  const mapFrameAxesNode: SceneNode = {
+    id: MAP_FRAME_AXES_NODE_ID,
+    name: "地图坐标轴",
+    type: "mapFrameAxes",
+    children: [],
+  };
+
+  const children: SceneNode[] = [backgroundGridNode, mapFrameAxesNode, ...jsonChildren];
   if (tumTrajectories.length > 0) {
     children.push({
       id: TRAJECTORY_ROOT_ID,

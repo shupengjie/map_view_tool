@@ -9,8 +9,9 @@ import { buildArrowPolygonFillGeometry } from "@/scene/arrowPolygonFill";
 import type { SceneNode, Vec3 } from "@/scene/types";
 import { Canvas, type ThreeEvent, useFrame } from "@react-three/fiber";
 import { Billboard, Edges, GizmoHelper, GizmoViewport, Grid, Line, OrbitControls, Text } from "@react-three/drei";
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { DoubleSide } from "three";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { DoubleSide, Vector3 } from "three";
+import type { Group } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { Vector3Tuple } from "three";
 
@@ -156,9 +157,302 @@ interface SceneNodeViewContentProps {
 }
 
 /**
+ * Same order as GizmoViewport `axisColors`: X 前, Y 上, Z 右 — keep in sync with top-right gizmo.
+ */
+const GIZMO_VIEWPORT_AXIS_COLORS = ["#ff4b4b", "#7bed4b", "#4ba3ff"] as const;
+
+/** Matches `Grid` fadeDistance so ground axes span the visible grid region. */
+const SCENE_GRID_FADE_DISTANCE = 420;
+
+/** Vertical extent of the Y axis (m), scene Y-up. */
+const MAP_FRAME_Y_HALF_EXTENT = 50;
+
+/** ~3× previous default axis stroke (AxesHelper / linewidth 1). */
+const MAP_FRAME_AXIS_LINE_WIDTH = 3;
+
+/** Major tick spacing along each axis (meters). */
+const MAP_FRAME_TICK_SPACING = 5;
+
+/** Short tick length, perpendicular to the axis (meters). */
+const MAP_FRAME_TICK_LENGTH = 0.55;
+
+const MAP_FRAME_TICK_LINE_WIDTH = 1.25;
+const MAP_FRAME_TICK_COLOR = "#909090";
+const MAP_FRAME_TICK_LABEL_COLOR = "#b4b4b4";
+
+function buildXAxisTickSegments(half: number, spacing: number, tickLen: number): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  const n = Math.floor(half / spacing);
+  for (let i = -n; i <= n; i++) {
+    const x = i * spacing;
+    out.push([x, 0, -tickLen / 2], [x, 0, tickLen / 2]);
+  }
+  return out;
+}
+
+function buildZAxisTickSegments(half: number, spacing: number, tickLen: number): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  const n = Math.floor(half / spacing);
+  for (let i = -n; i <= n; i++) {
+    const z = i * spacing;
+    out.push([-tickLen / 2, 0, z], [tickLen / 2, 0, z]);
+  }
+  return out;
+}
+
+function buildYAxisTickSegments(yHalf: number, spacing: number, tickLen: number): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  const n = Math.floor(yHalf / spacing);
+  for (let i = -n; i <= n; i++) {
+    const y = i * spacing;
+    out.push([-tickLen / 2, y, 0], [tickLen / 2, y, 0]);
+  }
+  return out;
+}
+
+function stripRaycastFromSubtree(root: Group | null) {
+  root?.traverse((o) => {
+    o.raycast = () => {};
+  });
+}
+
+/**
+ * Keeps tick label apparent size on screen roughly constant: scale ∝ distance to camera
+ * (counteracts perspective shrink when zooming out / raising the camera).
+ */
+const AXIS_TICK_LABEL_DIST_REF = 40;
+
+function AxisTickLabel({ position, text }: { position: [number, number, number]; text: string }) {
+  const groupRef = useRef<Group>(null);
+  const wp = useMemo(() => new Vector3(), []);
+
+  useFrame((state) => {
+    const g = groupRef.current;
+    if (!g) {
+      return;
+    }
+    const cam = state.camera;
+    g.getWorldPosition(wp);
+    const d = Math.max(cam.position.distanceTo(wp), 0.2);
+    const s = d / AXIS_TICK_LABEL_DIST_REF;
+    g.scale.setScalar(s);
+  });
+
+  return (
+    <group ref={groupRef} position={position}>
+      <Billboard follow>
+        <Text
+          fontSize={0.38}
+          color={MAP_FRAME_TICK_LABEL_COLOR}
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.032}
+          outlineColor="#141414"
+        >
+          {text}
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
+/**
+ * Infinite ground grid; visibility follows scene-tree eye (default on).
+ */
+function SceneBackgroundGridNodeView({ node, ancestorHidden }: Pick<SceneNodeViewContentProps, "node" | "ancestorHidden">) {
+  const hidden = useEditorStore((s) => s.hiddenNodeIds.has(node.id));
+  const nodeHidden = ancestorHidden || hidden;
+  const visible = !nodeHidden;
+  const groupRef = useRef<Group>(null);
+
+  useLayoutEffect(() => {
+    stripRaycastFromSubtree(groupRef.current);
+    const id = requestAnimationFrame(() => stripRaycastFromSubtree(groupRef.current));
+    return () => cancelAnimationFrame(id);
+  }, [visible]);
+
+  return (
+    <group ref={groupRef} visible={visible}>
+      <Grid
+        infiniteGrid
+        fadeDistance={SCENE_GRID_FADE_DISTANCE}
+        fadeStrength={1.25}
+        cellSize={1}
+        cellThickness={0.55}
+        cellColor="#424242"
+        sectionSize={10}
+        sectionThickness={1.05}
+        sectionColor="#4f6fa8"
+        position={[0, 0, 0]}
+      />
+      {node.children.map((c) => (
+        <SceneNodeView key={c.id} node={c} ancestorHidden={nodeHidden} />
+      ))}
+    </group>
+  );
+}
+
+/**
+ * Full-span map-frame axes at origin: X/Z along ground to ±grid fade; Y from -50m to +50m.
+ * Not raycastable (does not participate in viewport selection).
+ */
+function MapFrameAxesNodeView({ node, ancestorHidden }: Pick<SceneNodeViewContentProps, "node" | "ancestorHidden">) {
+  const hidden = useEditorStore((s) => s.hiddenNodeIds.has(node.id));
+  const nodeHidden = ancestorHidden || hidden;
+  const visible = !nodeHidden;
+  const groupRef = useRef<Group>(null);
+  const half = SCENE_GRID_FADE_DISTANCE;
+  const yh = MAP_FRAME_Y_HALF_EXTENT;
+  const [cx, cy, cz] = GIZMO_VIEWPORT_AXIS_COLORS;
+  const lw = MAP_FRAME_AXIS_LINE_WIDTH;
+
+  useLayoutEffect(() => {
+    stripRaycastFromSubtree(groupRef.current);
+    const id = requestAnimationFrame(() => stripRaycastFromSubtree(groupRef.current));
+    return () => cancelAnimationFrame(id);
+  }, [visible]);
+
+  const xSeg = useMemo(
+    () =>
+      [
+        [-half, 0, 0],
+        [half, 0, 0],
+      ] as [number, number, number][],
+    [half],
+  );
+  const ySeg = useMemo(
+    () =>
+      [
+        [0, -yh, 0],
+        [0, yh, 0],
+      ] as [number, number, number][],
+    [yh],
+  );
+  const zSeg = useMemo(
+    () =>
+      [
+        [0, 0, -half],
+        [0, 0, half],
+      ] as [number, number, number][],
+    [half],
+  );
+
+  const tl = MAP_FRAME_TICK_LENGTH;
+  const ts = MAP_FRAME_TICK_SPACING;
+  const xTicks = useMemo(() => buildXAxisTickSegments(half, ts, tl), [half, ts, tl]);
+  const zTicks = useMemo(() => buildZAxisTickSegments(half, ts, tl), [half, ts, tl]);
+  const yTicks = useMemo(() => buildYAxisTickSegments(yh, ts, tl), [yh, ts, tl]);
+
+  const xTickLabels = useMemo(() => {
+    const n = Math.floor(half / ts);
+    const rows: { key: string; text: string; pos: [number, number, number] }[] = [];
+    const off = tl / 2 + 0.42;
+    for (let i = -n; i <= n; i++) {
+      const x = i * ts;
+      rows.push({
+        key: `x${x}`,
+        text: String(x),
+        pos: [x, 0.14, off],
+      });
+    }
+    return rows;
+  }, [half, ts, tl]);
+
+  const zTickLabels = useMemo(() => {
+    const n = Math.floor(half / ts);
+    const rows: { key: string; text: string; pos: [number, number, number] }[] = [];
+    const off = tl / 2 + 0.42;
+    for (let i = -n; i <= n; i++) {
+      const z = i * ts;
+      rows.push({
+        key: `z${z}`,
+        text: String(z),
+        pos: [off, 0.14, z],
+      });
+    }
+    return rows;
+  }, [half, ts, tl]);
+
+  const yTickLabels = useMemo(() => {
+    const n = Math.floor(yh / ts);
+    const rows: { key: string; text: string; pos: [number, number, number] }[] = [];
+    const off = tl / 2 + 0.42;
+    for (let i = -n; i <= n; i++) {
+      const y = i * ts;
+      rows.push({
+        key: `y${y}`,
+        text: String(y),
+        pos: [off, y, 0.14],
+      });
+    }
+    return rows;
+  }, [yh, ts, tl]);
+
+  return (
+    <group ref={groupRef} visible={visible}>
+      <Line points={xSeg} color={cx} lineWidth={lw} depthTest depthWrite={false} transparent opacity={0.95} />
+      <Line points={ySeg} color={cy} lineWidth={lw} depthTest depthWrite={false} transparent opacity={0.95} />
+      <Line points={zSeg} color={cz} lineWidth={lw} depthTest depthWrite={false} transparent opacity={0.95} />
+      <Line
+        segments
+        points={xTicks}
+        color={MAP_FRAME_TICK_COLOR}
+        lineWidth={MAP_FRAME_TICK_LINE_WIDTH}
+        depthTest
+        depthWrite={false}
+        transparent
+        opacity={0.92}
+      />
+      <Line
+        segments
+        points={yTicks}
+        color={MAP_FRAME_TICK_COLOR}
+        lineWidth={MAP_FRAME_TICK_LINE_WIDTH}
+        depthTest
+        depthWrite={false}
+        transparent
+        opacity={0.92}
+      />
+      <Line
+        segments
+        points={zTicks}
+        color={MAP_FRAME_TICK_COLOR}
+        lineWidth={MAP_FRAME_TICK_LINE_WIDTH}
+        depthTest
+        depthWrite={false}
+        transparent
+        opacity={0.92}
+      />
+      {xTickLabels.map(({ key, text, pos }) => (
+        <AxisTickLabel key={key} position={pos} text={text} />
+      ))}
+      {zTickLabels.map(({ key, text, pos }) => (
+        <AxisTickLabel key={key} position={pos} text={text} />
+      ))}
+      {yTickLabels.map(({ key, text, pos }) => (
+        <AxisTickLabel key={key} position={pos} text={text} />
+      ))}
+      {node.children.map((c) => (
+        <SceneNodeView key={c.id} node={c} ancestorHidden={nodeHidden} />
+      ))}
+    </group>
+  );
+}
+
+function SceneNodeViewContentRouter(props: SceneNodeViewContentProps) {
+  if (props.node.type === "sceneBackgroundGrid") {
+    return <SceneBackgroundGridNodeView node={props.node} ancestorHidden={props.ancestorHidden} />;
+  }
+  if (props.node.type === "mapFrameAxes") {
+    return <MapFrameAxesNodeView node={props.node} ancestorHidden={props.ancestorHidden} />;
+  }
+  return <SceneNodeViewContentMain {...props} />;
+}
+
+/**
  * Recursively mounts groups and pickable placeholder meshes for the logical scene graph.
  */
-function SceneNodeViewContent({ node, isSelected, selectedPulse, ancestorHidden }: SceneNodeViewContentProps) {
+function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHidden }: SceneNodeViewContentProps) {
   const setSelectedNodeId = useEditorStore((s) => s.setSelectedNodeId);
   const hidden = useEditorStore((s) => s.hiddenNodeIds.has(node.id));
   const activeRegionFilterId = useEditorStore((s) => s.activeRegionFilterId);
@@ -457,7 +751,7 @@ function SceneNodeViewAnimated({ node, ancestorHidden }: SceneNodeViewProps) {
   });
 
   return (
-    <SceneNodeViewContent
+    <SceneNodeViewContentRouter
       node={node}
       isSelected
       selectedPulse={selectedPulse}
@@ -471,7 +765,9 @@ function SceneNodeView({ node, ancestorHidden = false }: SceneNodeViewProps) {
   const isSelected = selectedId === node.id;
 
   if (!isSelected) {
-    return <SceneNodeViewContent node={node} isSelected={false} selectedPulse={0} ancestorHidden={ancestorHidden} />;
+    return (
+      <SceneNodeViewContentRouter node={node} isSelected={false} selectedPulse={0} ancestorHidden={ancestorHidden} />
+    );
   }
 
   return <SceneNodeViewAnimated node={node} ancestorHidden={ancestorHidden} />;
@@ -492,24 +788,12 @@ function SceneContent() {
       <directionalLight position={[14, 26, 18]} intensity={1.65} color="#ffffff" />
       <directionalLight position={[-16, 12, -12]} intensity={0.52} color="#c8d8ff" />
       <directionalLight position={[0, 8, -22]} intensity={0.38} color="#ffe8d0" />
-      {/* Infinite grid only (no solid plane); large fade for “endless” feel */}
-      <Grid
-        infiniteGrid
-        fadeDistance={420}
-        fadeStrength={1.25}
-        cellSize={1}
-        cellThickness={0.55}
-        cellColor="#424242"
-        sectionSize={10}
-        sectionThickness={1.05}
-        sectionColor="#4f6fa8"
-        position={[0, 0, 0]}
-      />
+      {/* Infinite grid is rendered under scene root as `sceneBackgroundGrid` (see SceneBackgroundGridNodeView). */}
       {/* Gizmo follows mapJsonPointToThree: scene X=file x(前), Y=file z(上), Z=-file y(右) */}
       <GizmoHelper alignment="top-right" margin={[72, 72]}>
         <GizmoViewport
           labels={["前", "上", "右"]}
-          axisColors={["#ff4b4b", "#7bed4b", "#4ba3ff"]}
+          axisColors={[...GIZMO_VIEWPORT_AXIS_COLORS]}
           labelColor="#e8e8e8"
         />
       </GizmoHelper>
@@ -519,7 +803,7 @@ function SceneContent() {
 }
 
 const MAX_ORBIT_DISTANCE = 200;
-const MAX_CAMERA_Y = 155;
+const MAX_CAMERA_Y = 465;
 
 /** Wheel zoom speed scales ~linearly with camera–target distance; max zoom out via maxDistance; max altitude via Y clamp. */
 function OrbitControlsAdaptive({ controlsRef }: { readonly controlsRef: MutableRefObject<OrbitControlsImpl | null> }) {

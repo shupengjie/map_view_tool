@@ -25,8 +25,19 @@ export interface NodeTransform {
  * - `polyline`: connected line segments in order (`polylinePoints`), e.g. map arrows
  * - `parkingSlot`: parking space quad (`polylinePoints` = corners) + edges + label at center
  * - `pillar`: vertical box; `transform.position` = bottom center, `transform.rotation` = base orientation
+ * - `mapFrameAxes`: world-origin axes aligned with map/scene frame; viewport-only, not pickable
+ * - `sceneBackgroundGrid`: infinite XZ reference grid; viewport-only, not pickable
  */
-export type SceneNodeType = "root" | "json" | "group" | "mesh" | "polyline" | "parkingSlot" | "pillar";
+export type SceneNodeType =
+  | "root"
+  | "json"
+  | "group"
+  | "mesh"
+  | "polyline"
+  | "parkingSlot"
+  | "pillar"
+  | "mapFrameAxes"
+  | "sceneBackgroundGrid";
 
 /**
  * One node in the logical scene tree. Mirrors a subset of what Godot would show in the scene dock.

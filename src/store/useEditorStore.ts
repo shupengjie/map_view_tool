@@ -10,6 +10,7 @@ import { findNodeById, subtreeContainsNodeId } from "@/scene/graphUtils";
 import type { MapRegionItem } from "@/scene/regionMap";
 import { buildRegionIdToNodeIdsMap, extractRegionListFromParsedMap } from "@/scene/regionMap";
 import type { SceneNode, Vec3 } from "@/scene/types";
+import { MAP_FRAME_AXES_NODE_ID } from "@/scene/constants";
 import { isJsonMapFileName } from "@/utils/jsonMapFile";
 import { parseTumTrajectoryFile } from "@/utils/tumTrajectory";
 import { create } from "zustand";
@@ -191,7 +192,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedNodeId: null,
   loadError: null,
   jsonMapDuplicateNoticeOpen: false,
-  hiddenNodeIds: new Set<string>(),
+  /** Map-frame axes default off in viewport; toggled via scene tree eye. */
+  hiddenNodeIds: new Set<string>([MAP_FRAME_AXES_NODE_ID]),
   activeRegionFilterId: null,
   cameraFocusRequest: null,
 

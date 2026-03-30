@@ -2,6 +2,7 @@
  * When `cameraFocusRequest` is set (scene tree selection), moves orbit target + camera to frame that node.
  */
 
+import { MAP_FRAME_AXES_NODE_ID, SCENE_BACKGROUND_GRID_NODE_ID } from "@/scene/constants";
 import { useEditorStore } from "@/store/useEditorStore";
 import { useThree } from "@react-three/fiber";
 import { Box3, Vector3 } from "three";
@@ -65,6 +66,25 @@ export function CameraFocusSync({ controlsRef }: { readonly controlsRef: Mutable
     const ctrl = controlsRef.current;
     if (!ctrl) {
       clearCameraFocusRequest();
+      return;
+    }
+
+    if (cameraFocusRequest === MAP_FRAME_AXES_NODE_ID || cameraFocusRequest === SCENE_BACKGROUND_GRID_NODE_ID) {
+      clearCameraFocusRequest();
+      const center = new Vector3(0, 0, 0);
+      const prevTarget = ctrl.target.clone();
+      const offset = camera.position.clone().sub(prevTarget);
+      let dist = offset.length();
+      if (dist < 1e-6) {
+        dist = 12;
+        offset.set(1, 0.85, 1).normalize().multiplyScalar(dist);
+      } else {
+        dist = Math.min(Math.max(dist, 4), 120);
+        offset.normalize().multiplyScalar(dist);
+      }
+      ctrl.target.copy(center);
+      camera.position.copy(center.clone().add(offset));
+      ctrl.update();
       return;
     }
 
