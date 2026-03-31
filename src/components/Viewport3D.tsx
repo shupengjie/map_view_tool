@@ -472,6 +472,7 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
   const isRoadBoundaryLine = node.payload?.role === "roadBoundaryLine";
   const isRoadBoundaryRefTrajectory = node.payload?.role === "roadBoundaryRefTrajectory";
   const isTumTrajectory = node.payload?.role === "tumTrajectory";
+  const isMapTrajectory = node.payload?.role === "mapTrajectory";
   const payload = node.payload as Record<string, unknown> | undefined;
   const centerScene = payload?.centerScene as Vector3Tuple | undefined;
   const leftBoundaryPointsRaw = payload?.leftBoundaryPoints;
@@ -491,14 +492,31 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
   const nodeDisabled = nodeHidden || disabledByRegion;
 
   const quadFillGeo = useMemo(() => {
-    if (!pts || pts.length < 3 || isLaneLine || isRoadBoundaryLine || isRoadBoundaryRefTrajectory || isTumTrajectory) {
+    if (
+      !pts ||
+      pts.length < 3 ||
+      isLaneLine ||
+      isRoadBoundaryLine ||
+      isRoadBoundaryRefTrajectory ||
+      isTumTrajectory ||
+      isMapTrajectory
+    ) {
       return null;
     }
     if (isPolyline || isParkingSlot) {
       return buildArrowPolygonFillGeometry(pts);
     }
     return null;
-  }, [pts, isLaneLine, isRoadBoundaryLine, isRoadBoundaryRefTrajectory, isParkingSlot, isPolyline, isTumTrajectory]);
+  }, [
+    pts,
+    isLaneLine,
+    isRoadBoundaryLine,
+    isRoadBoundaryRefTrajectory,
+    isParkingSlot,
+    isPolyline,
+    isTumTrajectory,
+    isMapTrajectory,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -600,6 +618,18 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
           points={pts}
           color={String(payload?.color ?? "#e74c3c")}
           lineWidth={isSelected ? 3.5 : 2.25}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          onSelect={onMeshClick}
+          disabled={nodeDisabled}
+        />
+      ) : null}
+      {isPolyline && isMapTrajectory && pts && pts.length >= 2 ? (
+        <PickableLine
+          nodeId={node.id}
+          points={pts}
+          color={String(payload?.color ?? "#e67e22")}
+          lineWidth={isSelected ? 3.25 : 2.1}
           isSelected={isSelected}
           selectedPulse={selectedPulse}
           onSelect={onMeshClick}

@@ -277,6 +277,37 @@ function LaneLineInspector({
   );
 }
 
+function MapTrajectoryInspector({
+  payload,
+  sourceFile,
+}: {
+  payload: Record<string, unknown>;
+  sourceFile: string | null;
+}) {
+  return (
+    <InspectorSection title="地图轨迹 (trajectories)">
+      <InspectorRow label="来源文件">
+        <span className="inspector-value-text">{sourceFile ?? "—"}</span>
+      </InspectorRow>
+      <InspectorRow label="轨迹 id">
+        <span className="inspector-value-num">{formatScalar(payload.trajectoryId)}</span>
+      </InspectorRow>
+      <InspectorRow label="颜色">
+        <span className="inspector-value-text">{formatScalar(payload.color)}</span>
+      </InspectorRow>
+      <InspectorRow label="轨迹点数量">
+        <span className="inspector-value-num">{formatScalar(payload.pointCount)}</span>
+      </InspectorRow>
+      <InspectorRow label="首点时间 t">
+        <span className="inspector-value-num">{formatScalar(payload.firstT)}</span>
+      </InspectorRow>
+      <InspectorRow label="末点时间 t">
+        <span className="inspector-value-num">{formatScalar(payload.lastT)}</span>
+      </InspectorRow>
+    </InspectorSection>
+  );
+}
+
 function TumTrajectoryInspector({
   payload,
   sourceFile,
@@ -308,6 +339,9 @@ function PolylineInspector({
 }) {
   const role = node.payload?.role;
   const p = node.payload as Record<string, unknown> | undefined;
+  if (role === "mapTrajectory" && p) {
+    return <MapTrajectoryInspector payload={p} sourceFile={sourceFile} />;
+  }
   if (role === "tumTrajectory" && p) {
     return <TumTrajectoryInspector payload={p} sourceFile={sourceFile} />;
   }

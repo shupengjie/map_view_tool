@@ -1,9 +1,9 @@
 /**
  * Parking / HD map JSON: parses selected layers into a scene graph.
- * Skipped keys (no tree nodes, no geometry): header, trajectories, parkingSlotsOptimize, mapId, timestampNs.
+ * Skipped keys (no tree nodes, no geometry): header, parkingSlotsOptimize, mapId, timestampNs.
  * Implemented layers: `arrows` (filled polygon), `laneLines` (white polyline), `bumps` / `crossWalks` (endPt quads),
  * `parkingSlots` (centered quads + edges + id label), `pillars` (bottom-centered boxes),
- * `road_links` (per-link color + 道路边界线 left/right polylines).
+ * `road_links` (per-link color + 道路边界线 left/right polylines), `trajectories` (per-id polyline from `pts` x,y,z).
  *
  * Coordinate mapping: JSON {x,y,z} with x=前, y=左, z=上 (vehicle / map frame).
  * Three.js Y-up scene: X=file x, Y=file z, Z=-file y.
@@ -21,7 +21,6 @@ function newId(): string {
 /** Keys never expanded into generic or map-specific scene content (per product rules). */
 export const MAP_JSON_SKIPPED_KEYS = [
   "header",
-  "trajectories",
   "parkingSlotsOptimize",
   "mapId",
   "timestampNs",
@@ -40,7 +39,8 @@ export function isMapJsonRoot(value: unknown): value is Record<string, unknown> 
     Array.isArray(o.parkingSlots) ||
     Array.isArray(o.pillars) ||
     Array.isArray(o.road_links) ||
-    Array.isArray(o.regionList)
+    Array.isArray(o.regionList) ||
+    Array.isArray(o.trajectories)
   );
 }
 
@@ -565,6 +565,103 @@ function parseRoadLinksLayer(raw: unknown): SceneNode[] {
   return nodes;
 }
 
+const MAP_TRAJECTORY_COLORS = [
+  "#e67e22",
+  "#9b59b6",
+  "#1abc9c",
+  "#f39c12",
+  "#3498db",
+  "#e74c3c",
+  "#2ecc71",
+  "#d35400",
+] as const;
+
+interface RawMapTrajectoryPoint {
+  readonly t?: number;
+  readonly x?: number;
+  readonly y?: number;
+  readonly z?: number;
+  readonly qx?: number;
+  readonly qy?: number;
+  readonly qz?: number;
+  readonly qw?: number;
+}
+
+function trajectoryDisplayId(tr: { id?: unknown }, fallbackIndex: number): string | number {
+  const raw = tr.id;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.length > 0) {
+    return raw;
+  }
+  return fallbackIndex;
+}
+
+/**
+ * Map `trajectories[]`: each item has `id` and `pts`.
+ * Each point may include `t` (Unix time), `x,y,z` (map frame), `qw,qx,qy,qz` (orientation) — only xyz are used for the polyline; `mapJsonPointToThree` applies the same frame as the rest of the map.
+ * Scene tree: one `trajectories` group under the map document root, one child node per trajectory (node name = id), each rendered as a polyline.
+ */
+function parseMapTrajectoriesLayer(raw: unknown): SceneNode[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [];
+  }
+  const nodes: SceneNode[] = [];
+  for (let ti = 0; ti < raw.length; ti++) {
+    const item = raw[ti];
+    if (item === null || typeof item !== "object") {
+      continue;
+    }
+    const tr = item as { id?: unknown; pts?: unknown };
+    const tid = trajectoryDisplayId(tr, ti);
+    const ptsRaw = tr.pts;
+    if (!Array.isArray(ptsRaw) || ptsRaw.length < 2) {
+      continue;
+    }
+    const scenePts: Vec3[] = [];
+    let firstT: number | undefined;
+    let lastT: number | undefined;
+    for (let pi = 0; pi < ptsRaw.length; pi++) {
+      const pt = ptsRaw[pi];
+      if (pt === null || typeof pt !== "object") {
+        continue;
+      }
+      const p = pt as RawMapTrajectoryPoint;
+      if (typeof p.x !== "number" || typeof p.y !== "number" || typeof p.z !== "number") {
+        continue;
+      }
+      scenePts.push(mapJsonPointToThree({ x: p.x, y: p.y, z: p.z }));
+      if (typeof p.t === "number") {
+        if (firstT === undefined) {
+          firstT = p.t;
+        }
+        lastT = p.t;
+      }
+    }
+    if (scenePts.length < 2) {
+      continue;
+    }
+    const color = MAP_TRAJECTORY_COLORS[ti % MAP_TRAJECTORY_COLORS.length]!;
+    nodes.push({
+      id: newId(),
+      name: String(tid),
+      type: "polyline",
+      children: [],
+      polylinePoints: scenePts,
+      payload: {
+        role: "mapTrajectory",
+        trajectoryId: tid,
+        pointCount: scenePts.length,
+        color,
+        firstT,
+        lastT,
+      },
+    });
+  }
+  return nodes;
+}
+
 /**
  * Builds the file-local subtree for a map JSON root object (`arrows`, `bumps`, `crossWalks`, …).
  */
@@ -709,6 +806,17 @@ export function parseMapJsonToSceneNodes(parsed: Record<string, unknown>, docume
       type: "group",
       children: roadLinkNodes,
       payload: { role: "layer", layer: "road_links" },
+    });
+  }
+
+  const mapTrajectoryNodes = parseMapTrajectoriesLayer(parsed.trajectories);
+  if (mapTrajectoryNodes.length > 0) {
+    children.push({
+      id: newId(),
+      name: "trajectories",
+      type: "group",
+      children: mapTrajectoryNodes,
+      payload: { role: "layer", layer: "trajectories" },
     });
   }
 
