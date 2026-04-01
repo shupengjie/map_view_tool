@@ -116,6 +116,11 @@ export interface EditorState {
   readonly activeRegionFilterId: number | null;
   /** When set, the viewport will move the orbit target to this node (scene tree selection only). */
   readonly cameraFocusRequest: string | null;
+  /**
+   * `road_links` layer group node id → point render mode on (polyline vertices as points only).
+   * Absent or false: line mode (default).
+   */
+  readonly roadLinksPointRenderMode: ReadonlyMap<string, boolean>;
 
   /** Read multiple local files, parse JSON, append documents, optionally activate the first new one. */
   loadLocalJsonFiles: (files: FileList | File[]) => Promise<void>;
@@ -134,6 +139,8 @@ export interface EditorState {
   clearLoadError: () => void;
   dismissJsonMapDuplicateNotice: () => void;
   toggleRegionFilter: (regionId: number) => void;
+  /** Toggle point-vs-line rendering for all geometry under a `road_links` layer group. */
+  setRoadLinksPointRenderMode: (roadLinksLayerGroupId: string, pointMode: boolean) => void;
 }
 
 function newDocId(): string {
@@ -184,6 +191,22 @@ function pruneHiddenIdsForGraph(hidden: Set<string>, sceneRoot: SceneNode | null
   return next;
 }
 
+function pruneRoadLinksPointModes(
+  map: ReadonlyMap<string, boolean>,
+  sceneRoot: SceneNode | null,
+): ReadonlyMap<string, boolean> {
+  if (!sceneRoot || map.size === 0) {
+    return map;
+  }
+  const next = new Map<string, boolean>();
+  for (const [k, v] of map) {
+    if (findNodeById(sceneRoot, k)) {
+      next.set(k, v);
+    }
+  }
+  return next;
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   documents: [],
   tumTrajectories: [],
@@ -196,6 +219,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   hiddenNodeIds: new Set<string>([MAP_FRAME_AXES_NODE_ID]),
   activeRegionFilterId: null,
   cameraFocusRequest: null,
+  roadLinksPointRenderMode: new Map<string, boolean>(),
 
   loadLocalJsonFiles: async (files) => {
     const list = Array.from(files).filter((f) => /\.json$/i.test(f.name) || f.type === "application/json");
@@ -274,6 +298,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const documents = [...s.documents, ...newDocs];
       const activeDocumentId = s.activeDocumentId ?? newDocs[0]!.id;
       const sceneGraphRoot = buildSceneRootFromSlices(documents, s.tumTrajectories);
+      const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
       const dupNote =
         skippedDuplicate.length > 0
           ? `（已跳过重复文件：${skippedDuplicate.join("、")}）`
@@ -287,6 +312,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         jsonMapDuplicateNoticeOpen: noticeOpen,
         activeRegionFilterId: null,
         cameraFocusRequest: null,
+        roadLinksPointRenderMode,
       };
     });
   },
@@ -361,6 +387,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       const tumTrajectories = [...s.tumTrajectories, ...newItems];
       const sceneGraphRoot = buildSceneRootFromSlices(s.documents, tumTrajectories);
+      const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
       const dupNote =
         skippedDuplicate.length > 0 ? `（已跳过同名文件：${skippedDuplicate.join("、")}）` : "";
       const errNote = formatFailure ? "；部分文件格式错误已跳过" : "";
@@ -374,6 +401,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             : null,
         activeRegionFilterId: null,
         cameraFocusRequest: null,
+        roadLinksPointRenderMode,
       };
     });
   },
@@ -395,6 +423,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         selectedNodeId = null;
       }
       const hiddenNodeIds = pruneHiddenIdsForGraph(new Set(s.hiddenNodeIds), sceneGraphRoot);
+      const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
       return {
         documents,
         sceneGraphRoot,
@@ -403,6 +432,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         hiddenNodeIds,
         activeRegionFilterId: null,
         cameraFocusRequest: null,
+        roadLinksPointRenderMode,
       };
     });
   },
@@ -420,6 +450,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         selectedNodeId = null;
       }
       const hiddenNodeIds = pruneHiddenIdsForGraph(new Set(s.hiddenNodeIds), sceneGraphRoot);
+      const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
       return {
         tumTrajectories,
         sceneGraphRoot,
@@ -427,6 +458,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         hiddenNodeIds,
         activeRegionFilterId: null,
         cameraFocusRequest: null,
+        roadLinksPointRenderMode,
       };
     });
   },
@@ -491,6 +523,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       activeRegionFilterId: s.activeRegionFilterId === regionId ? null : regionId,
     }));
+  },
+
+  setRoadLinksPointRenderMode: (roadLinksLayerGroupId, pointMode) => {
+    set((s) => {
+      const next = new Map(s.roadLinksPointRenderMode);
+      if (pointMode) {
+        next.set(roadLinksLayerGroupId, true);
+      } else {
+        next.delete(roadLinksLayerGroupId);
+      }
+      return { roadLinksPointRenderMode: next };
+    });
   },
 }));
 

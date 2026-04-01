@@ -349,6 +349,14 @@
   text-align: left;
 }
 
+.inspector-road-links-point-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
 .inspector-empty {
   padding: 12px;
   color: var(--godot-text-dim);

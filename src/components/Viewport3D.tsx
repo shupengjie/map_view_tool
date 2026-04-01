@@ -10,7 +10,7 @@ import type { SceneNode, Vec3 } from "@/scene/types";
 import { Canvas, type ThreeEvent, useFrame } from "@react-three/fiber";
 import { Billboard, Edges, GizmoHelper, GizmoViewport, Grid, Line, OrbitControls, Text } from "@react-three/drei";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { DoubleSide, Vector3 } from "three";
+import { DoubleSide, Mesh as ThreeMesh, Vector3 } from "three";
 import type { Group } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { Vector3Tuple } from "three";
@@ -144,9 +144,432 @@ function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPu
   );
 }
 
+/** World-space radius (m) for each vertex sphere in `road_links` point mode (visible only). */
+const ROAD_LINK_POINT_SPHERE_RADIUS = 0.12;
+
+/** Invisible sphere used for picking when polyline degenerates to a single point (collider). */
+const ROAD_LINK_SINGLE_POINT_HIT_RADIUS = 0.38;
+
+/**
+ * Line collider hit-test basis: same as `RoadLinkRefTrajectoryLeaf` visible widths so thin boundaries
+ * and thick ref trajectory share identical invisible pick thickness (see `PickableLineColliderTrack`).
+ */
+const ROAD_LINK_COLLIDER_HIT_BASIS = 4.5;
+const ROAD_LINK_COLLIDER_HIT_BASIS_SELECTED = 9;
+
+/**
+ * Line-mode collider: invisible thick line + optional selection pulse (same path as line render).
+ * Always uses polyline geometry; does not replace visible road styling.
+ */
+function PickableLineColliderTrack({
+  points,
+  nodeId,
+  lineWidth,
+  isSelected,
+  selectedPulse,
+  disabled,
+  onSelect,
+  onHoverChange,
+}: {
+  points: readonly Vec3[];
+  nodeId: string;
+  lineWidth: number;
+  isSelected: boolean;
+  selectedPulse: number;
+  disabled: boolean;
+  onSelect: (e: ThreeEvent<MouseEvent>) => void;
+  onHoverChange: (hovered: boolean) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const visibleWidth = hovered && !isSelected ? lineWidth * 1.25 : lineWidth;
+  const hitBasis = isSelected ? ROAD_LINK_COLLIDER_HIT_BASIS_SELECTED : ROAD_LINK_COLLIDER_HIT_BASIS;
+  const hitWidth = Math.max(hitBasis * HIT_SCALE, MIN_HIT_WIDTH);
+  const selectedEdgeColor = selectedPulse > 0.5 ? "#ffea00" : "#ff3b9a";
+
+  const syncHover = (v: boolean) => {
+    setHovered(v);
+    onHoverChange(v);
+  };
+
+  if (points.length >= 2) {
+    return (
+      <>
+        {isSelected ? (
+          <Line
+            userData={{ nodeId }}
+            points={points}
+            color={selectedEdgeColor}
+            lineWidth={Math.max(visibleWidth * (1.6 + selectedPulse * 0.6), visibleWidth + 1.5)}
+            transparent
+            opacity={0.78 + selectedPulse * 0.22}
+            depthTest={false}
+            renderOrder={998}
+          />
+        ) : null}
+        <Line
+          userData={{ nodeId }}
+          points={points}
+          color="#ffffff"
+          lineWidth={hitWidth}
+          transparent
+          opacity={0.001}
+          depthTest={false}
+          renderOrder={999}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            if (disabled) {
+              return;
+            }
+            syncHover(true);
+          }}
+          onPointerOut={(e) => {
+            e.stopPropagation();
+            if (disabled) {
+              return;
+            }
+            syncHover(false);
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (disabled) {
+              return;
+            }
+            onSelect(e);
+          }}
+        />
+      </>
+    );
+  }
+
+  if (points.length === 1) {
+    return (
+      <RoadLinkPointHitCollider
+        position={points[0]!}
+        nodeId={nodeId}
+        radius={ROAD_LINK_SINGLE_POINT_HIT_RADIUS}
+        disabled={disabled}
+        onSelect={onSelect}
+        onHoverChange={syncHover}
+        isSelected={isSelected}
+        selectedPulse={selectedPulse}
+      />
+    );
+  }
+
+  return null;
+}
+
+/** Invisible sphere collider for single-point road link geometry. */
+function RoadLinkPointHitCollider({
+  position,
+  nodeId,
+  radius,
+  disabled,
+  onSelect,
+  onHoverChange,
+  isSelected,
+  selectedPulse,
+}: {
+  position: Vec3;
+  nodeId: string;
+  radius: number;
+  disabled: boolean;
+  onSelect: (e: ThreeEvent<MouseEvent>) => void;
+  onHoverChange: (hovered: boolean) => void;
+  isSelected: boolean;
+  selectedPulse: number;
+}) {
+  const meshRef = useRef<ThreeMesh>(null);
+
+  useLayoutEffect(() => {
+    const m = meshRef.current;
+    if (!m) {
+      return;
+    }
+    m.raycast = disabled ? () => {} : ThreeMesh.prototype.raycast.bind(m);
+  }, [disabled]);
+
+  const selectedEdgeColor = selectedPulse > 0.5 ? "#ffea00" : "#ff3b9a";
+
+  return (
+    <group position={position}>
+      {isSelected ? (
+        <mesh renderOrder={998}>
+          <sphereGeometry args={[radius * 1.35, 14, 14]} />
+          <meshBasicMaterial
+            color={selectedEdgeColor}
+            transparent
+            opacity={0.78 + selectedPulse * 0.22}
+            depthTest={false}
+          />
+        </mesh>
+      ) : null}
+      <mesh
+        ref={meshRef}
+        userData={{ nodeId }}
+        renderOrder={999}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          if (!disabled) {
+            onHoverChange(true);
+          }
+        }}
+        onPointerOut={(e) => {
+          e.stopPropagation();
+          if (!disabled) {
+            onHoverChange(false);
+          }
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!disabled) {
+            onSelect(e);
+          }
+        }}
+      >
+        <sphereGeometry args={[radius, 16, 16]} />
+        <meshBasicMaterial transparent opacity={0.001} depthWrite={false} depthTest={false} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Visible line only; picking handled by `PickableLineColliderTrack` (raycast disabled on this line). */
+function RoadLinkVisibleLine({
+  points,
+  color,
+  lineWidth,
+  nodeId,
+}: {
+  points: readonly Vec3[];
+  color: string;
+  lineWidth: number;
+  nodeId: string;
+}) {
+  const groupRef = useRef<Group>(null);
+  useLayoutEffect(() => {
+    const id = requestAnimationFrame(() => {
+      groupRef.current?.traverse((obj) => {
+        obj.raycast = () => {};
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [points, color, lineWidth, nodeId]);
+
+  return (
+    <group ref={groupRef}>
+      <Line userData={{ nodeId }} points={points} color={color} lineWidth={lineWidth} />
+    </group>
+  );
+}
+
+/** Visible vertex spheres only (no picking — collider is always line-mode). */
+function RoadLinkVertexPoints({
+  points: pts,
+  color,
+  nodeId,
+}: {
+  points: readonly Vec3[];
+  color: string;
+  nodeId: string;
+}) {
+  const groupRef = useRef<Group>(null);
+  useLayoutEffect(() => {
+    const id = requestAnimationFrame(() => {
+      groupRef.current?.traverse((obj) => {
+        obj.raycast = () => {};
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [pts, color, nodeId]);
+
+  if (pts.length === 0) {
+    return null;
+  }
+
+  return (
+    <group ref={groupRef}>
+      {pts.map((p, i) => (
+        <mesh key={i} position={p} userData={{ nodeId }}>
+          <sphereGeometry args={[ROAD_LINK_POINT_SPHERE_RADIUS, 12, 12]} />
+          <meshStandardMaterial color={color} metalness={0.12} roughness={0.45} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** `road_links` leaf: merged left/right — visible switches with point mode; colliders always line geometry. */
+function MergedRoadBoundaryRoadLinksView({
+  mergedLeftBoundaryPoints,
+  mergedRightBoundaryPoints,
+  roadLinksPointMode,
+  roadLinkColor,
+  nodeId,
+  isSelected,
+  selectedPulse,
+  nodeDisabled,
+  onMeshClick,
+}: {
+  mergedLeftBoundaryPoints: readonly Vec3[];
+  mergedRightBoundaryPoints: readonly Vec3[];
+  roadLinksPointMode: boolean;
+  roadLinkColor: string;
+  nodeId: string;
+  isSelected: boolean;
+  selectedPulse: number;
+  nodeDisabled: boolean;
+  onMeshClick: (e: ThreeEvent<MouseEvent>) => void;
+}) {
+  const [hoverL, setHoverL] = useState(false);
+  const [hoverR, setHoverR] = useState(false);
+  const colorL = isSelected ? SELECT_BASE_COLOR : hoverL ? LINE_HOVER_COLOR : roadLinkColor;
+  const colorR = isSelected ? SELECT_BASE_COLOR : hoverR ? LINE_HOVER_COLOR : roadLinkColor;
+  const lw = isSelected ? 3 : 1.5;
+  const hasCollidableL = mergedLeftBoundaryPoints.length >= 1;
+  const hasCollidableR = mergedRightBoundaryPoints.length >= 1;
+
+  return (
+    <>
+      {!roadLinksPointMode && mergedLeftBoundaryPoints.length >= 2 && (
+        <RoadLinkVisibleLine points={mergedLeftBoundaryPoints} color={colorL} lineWidth={lw} nodeId={nodeId} />
+      )}
+      {!roadLinksPointMode && mergedRightBoundaryPoints.length >= 2 && (
+        <RoadLinkVisibleLine points={mergedRightBoundaryPoints} color={colorR} lineWidth={lw} nodeId={nodeId} />
+      )}
+      {roadLinksPointMode && mergedLeftBoundaryPoints.length >= 1 && (
+        <RoadLinkVertexPoints points={mergedLeftBoundaryPoints} color={colorL} nodeId={nodeId} />
+      )}
+      {roadLinksPointMode && mergedRightBoundaryPoints.length >= 1 && (
+        <RoadLinkVertexPoints points={mergedRightBoundaryPoints} color={colorR} nodeId={nodeId} />
+      )}
+      {hasCollidableL ? (
+        <PickableLineColliderTrack
+          points={mergedLeftBoundaryPoints}
+          nodeId={nodeId}
+          lineWidth={lw}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          disabled={nodeDisabled}
+          onSelect={onMeshClick}
+          onHoverChange={setHoverL}
+        />
+      ) : null}
+      {hasCollidableR ? (
+        <PickableLineColliderTrack
+          points={mergedRightBoundaryPoints}
+          nodeId={nodeId}
+          lineWidth={lw}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          disabled={nodeDisabled}
+          onSelect={onMeshClick}
+          onHoverChange={setHoverR}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function RoadLinkSingleBoundaryLeaf({
+  pts,
+  roadLinksPointMode,
+  roadLinkColor,
+  nodeId,
+  isSelected,
+  selectedPulse,
+  nodeDisabled,
+  onMeshClick,
+}: {
+  pts: readonly Vec3[];
+  roadLinksPointMode: boolean;
+  roadLinkColor: string;
+  nodeId: string;
+  isSelected: boolean;
+  selectedPulse: number;
+  nodeDisabled: boolean;
+  onMeshClick: (e: ThreeEvent<MouseEvent>) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const showColor = isSelected ? SELECT_BASE_COLOR : hover ? LINE_HOVER_COLOR : roadLinkColor;
+  const lw = isSelected ? 3 : 1.5;
+
+  return (
+    <>
+      {!roadLinksPointMode && pts.length >= 2 && (
+        <RoadLinkVisibleLine points={pts} color={showColor} lineWidth={lw} nodeId={nodeId} />
+      )}
+      {roadLinksPointMode && pts.length >= 1 && (
+        <RoadLinkVertexPoints points={pts} color={showColor} nodeId={nodeId} />
+      )}
+      {pts.length >= 1 ? (
+        <PickableLineColliderTrack
+          points={pts}
+          nodeId={nodeId}
+          lineWidth={lw}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          disabled={nodeDisabled}
+          onSelect={onMeshClick}
+          onHoverChange={setHover}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function RoadLinkRefTrajectoryLeaf({
+  pts,
+  roadLinksPointMode,
+  roadLinkColor,
+  nodeId,
+  isSelected,
+  selectedPulse,
+  nodeDisabled,
+  onMeshClick,
+}: {
+  pts: readonly Vec3[];
+  roadLinksPointMode: boolean;
+  roadLinkColor: string;
+  nodeId: string;
+  isSelected: boolean;
+  selectedPulse: number;
+  nodeDisabled: boolean;
+  onMeshClick: (e: ThreeEvent<MouseEvent>) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const showColor = isSelected ? SELECT_BASE_COLOR : hover ? LINE_HOVER_COLOR : roadLinkColor;
+  const lw = isSelected ? 9 : 4.5;
+
+  return (
+    <>
+      {!roadLinksPointMode && pts.length >= 2 && (
+        <RoadLinkVisibleLine points={pts} color={showColor} lineWidth={lw} nodeId={nodeId} />
+      )}
+      {roadLinksPointMode && pts.length >= 1 && (
+        <RoadLinkVertexPoints points={pts} color={showColor} nodeId={nodeId} />
+      )}
+      {pts.length >= 1 ? (
+        <PickableLineColliderTrack
+          points={pts}
+          nodeId={nodeId}
+          lineWidth={lw}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          disabled={nodeDisabled}
+          onSelect={onMeshClick}
+          onHoverChange={setHover}
+        />
+      ) : null}
+    </>
+  );
+}
+
 interface SceneNodeViewProps {
   readonly node: SceneNode;
   readonly ancestorHidden?: boolean;
+  /** When set, descendants are under this `road_links` layer group (for point/line render mode). */
+  readonly roadLinksLayerGroupId?: string | null;
 }
 
 interface SceneNodeViewContentProps {
@@ -154,6 +577,7 @@ interface SceneNodeViewContentProps {
   readonly isSelected: boolean;
   readonly selectedPulse: number;
   readonly ancestorHidden: boolean;
+  readonly roadLinksLayerGroupId?: string | null;
 }
 
 /**
@@ -259,7 +683,11 @@ function AxisTickLabel({ position, text }: { position: [number, number, number];
 /**
  * Infinite ground grid; visibility follows scene-tree eye (default on).
  */
-function SceneBackgroundGridNodeView({ node, ancestorHidden }: Pick<SceneNodeViewContentProps, "node" | "ancestorHidden">) {
+function SceneBackgroundGridNodeView({
+  node,
+  ancestorHidden,
+  roadLinksLayerGroupId,
+}: Pick<SceneNodeViewContentProps, "node" | "ancestorHidden" | "roadLinksLayerGroupId">) {
   const hidden = useEditorStore((s) => s.hiddenNodeIds.has(node.id));
   const nodeHidden = ancestorHidden || hidden;
   const visible = !nodeHidden;
@@ -286,7 +714,12 @@ function SceneBackgroundGridNodeView({ node, ancestorHidden }: Pick<SceneNodeVie
         position={[0, 0, 0]}
       />
       {node.children.map((c) => (
-        <SceneNodeView key={c.id} node={c} ancestorHidden={nodeHidden} />
+        <SceneNodeView
+          key={c.id}
+          node={c}
+          ancestorHidden={nodeHidden}
+          roadLinksLayerGroupId={roadLinksLayerGroupId ?? null}
+        />
       ))}
     </group>
   );
@@ -296,7 +729,11 @@ function SceneBackgroundGridNodeView({ node, ancestorHidden }: Pick<SceneNodeVie
  * Full-span map-frame axes at origin: X/Z along ground to ±grid fade; Y from -50m to +50m.
  * Not raycastable (does not participate in viewport selection).
  */
-function MapFrameAxesNodeView({ node, ancestorHidden }: Pick<SceneNodeViewContentProps, "node" | "ancestorHidden">) {
+function MapFrameAxesNodeView({
+  node,
+  ancestorHidden,
+  roadLinksLayerGroupId,
+}: Pick<SceneNodeViewContentProps, "node" | "ancestorHidden" | "roadLinksLayerGroupId">) {
   const hidden = useEditorStore((s) => s.hiddenNodeIds.has(node.id));
   const nodeHidden = ancestorHidden || hidden;
   const visible = !nodeHidden;
@@ -433,7 +870,12 @@ function MapFrameAxesNodeView({ node, ancestorHidden }: Pick<SceneNodeViewConten
         <AxisTickLabel key={key} position={pos} text={text} />
       ))}
       {node.children.map((c) => (
-        <SceneNodeView key={c.id} node={c} ancestorHidden={nodeHidden} />
+        <SceneNodeView
+          key={c.id}
+          node={c}
+          ancestorHidden={nodeHidden}
+          roadLinksLayerGroupId={roadLinksLayerGroupId ?? null}
+        />
       ))}
     </group>
   );
@@ -441,10 +883,22 @@ function MapFrameAxesNodeView({ node, ancestorHidden }: Pick<SceneNodeViewConten
 
 function SceneNodeViewContentRouter(props: SceneNodeViewContentProps) {
   if (props.node.type === "sceneBackgroundGrid") {
-    return <SceneBackgroundGridNodeView node={props.node} ancestorHidden={props.ancestorHidden} />;
+    return (
+      <SceneBackgroundGridNodeView
+        node={props.node}
+        ancestorHidden={props.ancestorHidden}
+        roadLinksLayerGroupId={props.roadLinksLayerGroupId}
+      />
+    );
   }
   if (props.node.type === "mapFrameAxes") {
-    return <MapFrameAxesNodeView node={props.node} ancestorHidden={props.ancestorHidden} />;
+    return (
+      <MapFrameAxesNodeView
+        node={props.node}
+        ancestorHidden={props.ancestorHidden}
+        roadLinksLayerGroupId={props.roadLinksLayerGroupId}
+      />
+    );
   }
   return <SceneNodeViewContentMain {...props} />;
 }
@@ -452,10 +906,17 @@ function SceneNodeViewContentRouter(props: SceneNodeViewContentProps) {
 /**
  * Recursively mounts groups and pickable placeholder meshes for the logical scene graph.
  */
-function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHidden }: SceneNodeViewContentProps) {
+function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHidden, roadLinksLayerGroupId }: SceneNodeViewContentProps) {
   const setSelectedNodeId = useEditorStore((s) => s.setSelectedNodeId);
   const hidden = useEditorStore((s) => s.hiddenNodeIds.has(node.id));
   const activeRegionFilterId = useEditorStore((s) => s.activeRegionFilterId);
+  const roadLinksPointMode = useEditorStore((s) => {
+    const id = roadLinksLayerGroupId;
+    if (id == null) {
+      return false;
+    }
+    return s.roadLinksPointRenderMode.get(id) === true;
+  });
 
   const position = useMemo(() => vec3Or(node.transform?.position, [0, 0, 0]), [node.transform?.position]);
   const scale = useMemo(() => vec3Or(node.transform?.scale, [1, 1, 1]), [node.transform?.scale]);
@@ -552,6 +1013,13 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
     ] as const;
   }, [pts]);
 
+  const nextRoadLinksLayerGroupId =
+    node.type === "group" &&
+    (node.payload as Record<string, unknown> | undefined)?.role === "layer" &&
+    (node.payload as Record<string, unknown>).layer === "road_links"
+      ? node.id
+      : (roadLinksLayerGroupId ?? null);
+
   return (
     <group
       userData={{ nodeId: node.id }}
@@ -561,43 +1029,32 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
       visible={visible}
     >
       {isPolyline && hasMergedRoadBoundary ? (
-        <>
-          {mergedLeftBoundaryPoints.length >= 2 ? (
-            <PickableLine
-              nodeId={node.id}
-              points={mergedLeftBoundaryPoints}
-              color={String(payload?.roadLinkColor ?? "#cccccc")}
-              lineWidth={isSelected ? 3 : 1.5}
-              isSelected={isSelected}
-              selectedPulse={selectedPulse}
-              onSelect={onMeshClick}
-              disabled={nodeDisabled}
-            />
-          ) : null}
-          {mergedRightBoundaryPoints.length >= 2 ? (
-            <PickableLine
-              nodeId={node.id}
-              points={mergedRightBoundaryPoints}
-              color={String(payload?.roadLinkColor ?? "#cccccc")}
-              lineWidth={isSelected ? 3 : 1.5}
-              isSelected={isSelected}
-              selectedPulse={selectedPulse}
-              onSelect={onMeshClick}
-              disabled={nodeDisabled}
-            />
-          ) : null}
-        </>
-      ) : null}
-      {isPolyline && isRoadBoundaryLine && !hasMergedRoadBoundary && pts && pts.length >= 2 ? (
-        <PickableLine
+        <MergedRoadBoundaryRoadLinksView
+          mergedLeftBoundaryPoints={mergedLeftBoundaryPoints}
+          mergedRightBoundaryPoints={mergedRightBoundaryPoints}
+          roadLinksPointMode={roadLinksPointMode}
+          roadLinkColor={String(payload?.roadLinkColor ?? "#cccccc")}
           nodeId={node.id}
-          points={pts}
-          color={String(payload?.roadLinkColor ?? "#cccccc")}
-          lineWidth={isSelected ? 3 : 1.5}
           isSelected={isSelected}
           selectedPulse={selectedPulse}
-          onSelect={onMeshClick}
-          disabled={nodeDisabled}
+          nodeDisabled={nodeDisabled}
+          onMeshClick={onMeshClick}
+        />
+      ) : null}
+      {isPolyline &&
+      isRoadBoundaryLine &&
+      !hasMergedRoadBoundary &&
+      pts &&
+      pts.length >= (roadLinksPointMode ? 1 : 2) ? (
+        <RoadLinkSingleBoundaryLeaf
+          pts={pts}
+          roadLinksPointMode={roadLinksPointMode}
+          roadLinkColor={String(payload?.roadLinkColor ?? "#cccccc")}
+          nodeId={node.id}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          nodeDisabled={nodeDisabled}
+          onMeshClick={onMeshClick}
         />
       ) : null}
       {isPolyline && isLaneLine && pts && pts.length >= 2 ? (
@@ -636,16 +1093,19 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
           disabled={nodeDisabled}
         />
       ) : null}
-      {isPolyline && isRoadBoundaryRefTrajectory && pts && pts.length >= 2 ? (
-        <PickableLine
+      {isPolyline &&
+      isRoadBoundaryRefTrajectory &&
+      pts &&
+      pts.length >= (roadLinksPointMode ? 1 : 2) ? (
+        <RoadLinkRefTrajectoryLeaf
+          pts={pts}
+          roadLinksPointMode={roadLinksPointMode}
+          roadLinkColor={String(payload?.roadLinkColor ?? "#cccccc")}
           nodeId={node.id}
-          points={pts}
-          color={String(payload?.roadLinkColor ?? "#cccccc")}
-          lineWidth={isSelected ? 9 : 4.5}
           isSelected={isSelected}
           selectedPulse={selectedPulse}
-          onSelect={onMeshClick}
-          disabled={nodeDisabled}
+          nodeDisabled={nodeDisabled}
+          onMeshClick={onMeshClick}
         />
       ) : null}
       {isPolyline && !isLaneLine && quadFillGeo ? (
@@ -766,13 +1226,18 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
         </mesh>
       ) : null}
       {node.children.map((c) => (
-        <SceneNodeView key={c.id} node={c} ancestorHidden={nodeHidden} />
+        <SceneNodeView
+          key={c.id}
+          node={c}
+          ancestorHidden={nodeHidden}
+          roadLinksLayerGroupId={nextRoadLinksLayerGroupId}
+        />
       ))}
     </group>
   );
 }
 
-function SceneNodeViewAnimated({ node, ancestorHidden }: SceneNodeViewProps) {
+function SceneNodeViewAnimated({ node, ancestorHidden, roadLinksLayerGroupId }: SceneNodeViewProps) {
   const [selectedPulse, setSelectedPulse] = useState(0);
 
   useFrame((state) => {
@@ -786,21 +1251,30 @@ function SceneNodeViewAnimated({ node, ancestorHidden }: SceneNodeViewProps) {
       isSelected
       selectedPulse={selectedPulse}
       ancestorHidden={ancestorHidden ?? false}
+      roadLinksLayerGroupId={roadLinksLayerGroupId}
     />
   );
 }
 
-function SceneNodeView({ node, ancestorHidden = false }: SceneNodeViewProps) {
+function SceneNodeView({ node, ancestorHidden = false, roadLinksLayerGroupId }: SceneNodeViewProps) {
   const selectedId = useEditorStore((s) => s.selectedNodeId);
   const isSelected = selectedId === node.id;
 
   if (!isSelected) {
     return (
-      <SceneNodeViewContentRouter node={node} isSelected={false} selectedPulse={0} ancestorHidden={ancestorHidden} />
+      <SceneNodeViewContentRouter
+        node={node}
+        isSelected={false}
+        selectedPulse={0}
+        ancestorHidden={ancestorHidden}
+        roadLinksLayerGroupId={roadLinksLayerGroupId}
+      />
     );
   }
 
-  return <SceneNodeViewAnimated node={node} ancestorHidden={ancestorHidden} />;
+  return (
+    <SceneNodeViewAnimated node={node} ancestorHidden={ancestorHidden} roadLinksLayerGroupId={roadLinksLayerGroupId} />
+  );
 }
 
 function SceneContent() {

@@ -422,6 +422,33 @@ function GenericInspector({ node, sourceFile }: { node: SceneNode; sourceFile: s
   );
 }
 
+function RoadLinksLayerInspector({ node, sourceFile }: { node: SceneNode; sourceFile: string | null }) {
+  const groupId = node.id;
+  const pointMode = useEditorStore((s) => s.roadLinksPointRenderMode.get(groupId) === true);
+  const setRoadLinksPointRenderMode = useEditorStore((s) => s.setRoadLinksPointRenderMode);
+
+  return (
+    <>
+      <InspectorSection title="road_links">
+        <div className="inspector-row">
+          <span className="inspector-row-label">显示</span>
+          <div className="inspector-row-value">
+            <label className="inspector-road-links-point-mode">
+              <input
+                type="checkbox"
+                checked={pointMode}
+                onChange={(e) => setRoadLinksPointRenderMode(groupId, e.target.checked)}
+              />
+              <span>点渲染模式</span>
+            </label>
+          </div>
+        </div>
+      </InspectorSection>
+      <GenericInspector node={node} sourceFile={sourceFile} />
+    </>
+  );
+}
+
 function InspectorContent({
   node,
   sourceFile,
@@ -433,6 +460,11 @@ function InspectorContent({
     <div className="inspector-godot">
       {node.type === "mapFrameAxes" || node.type === "sceneBackgroundGrid" ? (
         <div className="inspector-empty">该节点无属性。</div>
+      ) : node.type === "group" &&
+        node.payload &&
+        (node.payload as Record<string, unknown>).role === "layer" &&
+        (node.payload as Record<string, unknown>).layer === "road_links" ? (
+        <RoadLinksLayerInspector node={node} sourceFile={sourceFile} />
       ) : node.type === "pillar" && node.payload ? (
         <PillarInspector sourceFile={sourceFile} payload={node.payload as Record<string, unknown>} />
       ) : node.type === "group" && node.payload && (node.payload as Record<string, unknown>).role === "roadLink" ? (
