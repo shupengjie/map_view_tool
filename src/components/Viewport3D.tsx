@@ -5,6 +5,7 @@
 
 import { CameraFocusSync } from "@/components/CameraFocusSync";
 import { useEditorStore } from "@/store/useEditorStore";
+import { LANE_LINE_TYPE_ROAD_BOUNDARY } from "@/adapters/mapJsonToScene";
 import { buildArrowPolygonFillGeometry } from "@/scene/arrowPolygonFill";
 import type { SceneNode, Vec3 } from "@/scene/types";
 import { Canvas, type ThreeEvent, useFrame } from "@react-three/fiber";
@@ -1089,6 +1090,11 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
 
   const selectedEdgeColor = selectedPulse > 0.5 ? "#ffea00" : "#ff3b9a";
 
+  const laneLineStrokeColor = useMemo(() => {
+    const lt = payload?.lineType;
+    return typeof lt === "number" && lt === LANE_LINE_TYPE_ROAD_BOUNDARY ? "#f0a028" : "#ffffff";
+  }, [payload?.lineType]);
+
   const visible = !nodeDisabled;
 
   const parkingSlotEdgeSegments = useMemo(() => {
@@ -1151,7 +1157,7 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
         <PickableLine
           nodeId={node.id}
           points={pts}
-          color="#ffffff"
+          color={laneLineStrokeColor}
           lineWidth={isSelected ? 3 : 1.5}
           isSelected={isSelected}
           selectedPulse={selectedPulse}

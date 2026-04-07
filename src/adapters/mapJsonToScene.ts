@@ -1,7 +1,7 @@
 /**
  * Parking / HD map JSON: parses selected layers into a scene graph.
  * Skipped keys (no tree nodes, no geometry): header, parkingSlotsOptimize, mapId, timestampNs.
- * Implemented layers: `arrows` (filled polygon), `laneLines` (white polyline), `bumps` / `crossWalks` (endPt quads),
+ * Implemented layers: `arrows` (filled polygon), `laneLines` (grouped by `lineType` 1–6 under named subgroups), `bumps` / `crossWalks` (endPt quads),
  * `parkingSlots` (centered quads + edges + id label), `pillars` (bottom-centered boxes),
  * `road_links` (per-link color + 道路边界线 left/right polylines), `trajectories` (per-id polyline from `pts` x,y,z).
  *
@@ -169,6 +169,28 @@ interface RawLaneLine {
   readonly link_id?: unknown;
   readonly regionID?: unknown;
   readonly points?: unknown;
+}
+
+/** Map JSON `laneLines[].lineType`: 1–6 classification for scene tree + viewport color (4 = ROAD_BOUNDARY → orange). */
+export const LANE_LINE_TYPE_LABELS = [
+  "SOLID_LINE",
+  "DASHED_LINE",
+  "CURB_LINE",
+  "ROAD_BOUNDARY",
+  "OTHER_BOUNDARY",
+  "OTHER_LINE",
+] as const;
+
+export const LANE_LINE_TYPE_ROAD_BOUNDARY = 4;
+
+export function normalizeLaneLineType(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const n = Math.trunc(raw);
+    if (n >= 1 && n <= 6) {
+      return n;
+    }
+  }
+  return 6;
 }
 
 interface RawParkingSlot {
@@ -738,7 +760,7 @@ export function parseMapJsonToSceneNodes(parsed: Record<string, unknown>, docume
 
   const laneLinesRaw = parsed.laneLines;
   if (Array.isArray(laneLinesRaw) && laneLinesRaw.length > 0) {
-    const laneLineNodes: SceneNode[] = [];
+    const buckets: SceneNode[][] = [[], [], [], [], [], []];
     for (let i = 0; i < laneLinesRaw.length; i++) {
       const item = laneLinesRaw[i];
       if (item === null || typeof item !== "object") {
@@ -750,7 +772,8 @@ export function parseMapJsonToSceneNodes(parsed: Record<string, unknown>, docume
         continue;
       }
       const sourceId = typeof ln.id === "number" ? ln.id : i;
-      laneLineNodes.push({
+      const lineType = normalizeLaneLineType(ln.lineType);
+      buckets[lineType - 1]!.push({
         id: newId(),
         name: `laneLine ${sourceId}`,
         type: "polyline",
@@ -759,18 +782,35 @@ export function parseMapJsonToSceneNodes(parsed: Record<string, unknown>, docume
         payload: {
           role: "laneLine",
           id: sourceId,
-          lineType: ln.lineType,
+          lineType,
           link_id: ln.link_id,
           regionID: ln.regionID,
         },
       });
     }
-    if (laneLineNodes.length > 0) {
+    const totalLaneLines = buckets.reduce((n, b) => n + b.length, 0);
+    if (totalLaneLines > 0) {
+      const typeGroupChildren: SceneNode[] = [];
+      for (let t = 1; t <= 6; t++) {
+        const nodes = buckets[t - 1]!;
+        const label = LANE_LINE_TYPE_LABELS[t - 1]!;
+        typeGroupChildren.push({
+          id: newId(),
+          name: label,
+          type: "group",
+          children: nodes,
+          payload: {
+            role: "laneLineTypeGroup",
+            lineType: t,
+            lineTypeLabel: label,
+          },
+        });
+      }
       children.push({
         id: newId(),
         name: "laneLines",
         type: "group",
-        children: laneLineNodes,
+        children: typeGroupChildren,
         payload: { role: "layer", layer: "laneLines" },
       });
     }

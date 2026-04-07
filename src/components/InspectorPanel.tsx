@@ -2,6 +2,7 @@
  * Right panel: Godot-style property inspector (label | value rows), not raw JSON.
  */
 
+import { LANE_LINE_TYPE_LABELS } from "@/adapters/mapJsonToScene";
 import { RegionListPanel } from "@/components/RegionListPanel";
 import { findDocumentIdForSelectedNode } from "@/scene/graphUtils";
 import type { SceneNode } from "@/scene/types";
@@ -290,6 +291,14 @@ function ParkingSlotInspector({
   );
 }
 
+function laneLineTypeEnumName(payload: Record<string, unknown>): string {
+  const lt = payload.lineType;
+  if (typeof lt === "number" && lt >= 1 && lt <= 6) {
+    return LANE_LINE_TYPE_LABELS[lt - 1]!;
+  }
+  return "—";
+}
+
 function LaneLineInspector({
   sourceFile,
   payload,
@@ -307,6 +316,9 @@ function LaneLineInspector({
       </InspectorRow>
       <InspectorRow label="lineType">
         <span className="inspector-value-num">{formatScalar(payload.lineType)}</span>
+      </InspectorRow>
+      <InspectorRow label="类型名称">
+        <span className="inspector-value-text">{laneLineTypeEnumName(payload)}</span>
       </InspectorRow>
       <InspectorRow label="link_id">
         <span className="inspector-value-num">{formatScalar(payload.link_id)}</span>
