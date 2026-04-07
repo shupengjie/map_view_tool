@@ -1,18 +1,45 @@
 /**
- * Top toolbar: local JSON and TUM trajectory file inputs.
+ * Top toolbar: “加载数据” dropdown — Json地图 / TUM轨迹 / Layer数据 file inputs.
  */
 
 import logoUrl from "@/icons/logo.png";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEditorStore } from "@/store/useEditorStore";
 
 export function Toolbar() {
   const jsonInputRef = useRef<HTMLInputElement>(null);
+  const layerInputRef = useRef<HTMLInputElement>(null);
   const tumInputRef = useRef<HTMLInputElement>(null);
-  const loadLocalJsonFiles = useEditorStore((s) => s.loadLocalJsonFiles);
+  const menuWrapRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const loadLocalJsonMapFiles = useEditorStore((s) => s.loadLocalJsonMapFiles);
+  const loadLocalLayerDataJsonFiles = useEditorStore((s) => s.loadLocalLayerDataJsonFiles);
   const loadLocalTumFiles = useEditorStore((s) => s.loadLocalTumFiles);
   const loadError = useEditorStore((s) => s.loadError);
   const clearLoadError = useEditorStore((s) => s.clearLoadError);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const onDocPointerDown = (e: PointerEvent) => {
+      const el = menuWrapRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onDocPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onDocPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
 
   return (
     <header className="toolbar">
@@ -21,34 +48,92 @@ export function Toolbar() {
         <span className="toolbar-title">JSON Map View</span>
       </div>
       <div className="toolbar-actions">
-        <button
-          type="button"
-          className="godot-btn godot-btn-primary"
-          onClick={() => jsonInputRef.current?.click()}
-        >
-          加载本地 JSON…
-        </button>
+        <div className="toolbar-load-wrap" ref={menuWrapRef}>
+          <button
+            type="button"
+            className="godot-btn godot-btn-primary toolbar-load-trigger"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            加载数据
+            <span className="toolbar-load-chevron" aria-hidden>
+              ▾
+            </span>
+          </button>
+          {menuOpen ? (
+            <div className="toolbar-load-menu" role="menu" aria-label="加载数据">
+              <button
+                type="button"
+                role="menuitem"
+                className="toolbar-load-menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  jsonInputRef.current?.click();
+                }}
+              >
+                Json地图
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="toolbar-load-menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  tumInputRef.current?.click();
+                }}
+              >
+                TUM轨迹
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="toolbar-load-menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  layerInputRef.current?.click();
+                }}
+              >
+                Layer数据
+              </button>
+            </div>
+          ) : null}
+        </div>
         <input
           ref={jsonInputRef}
           type="file"
           accept=".json,application/json"
+          title="须为 .json 且含 json_map（json_map 与 .json 之间可有其他字符）"
           multiple
           hidden
           onChange={(e) => {
             const files = e.target.files;
             if (files?.length) {
-              void loadLocalJsonFiles(files);
+              void loadLocalJsonMapFiles(files);
             }
             e.target.value = "";
           }}
         />
-        <button type="button" className="godot-btn" onClick={() => tumInputRef.current?.click()}>
-          加载 TUM 轨迹
-        </button>
+        <input
+          ref={layerInputRef}
+          type="file"
+          accept=".json,application/json"
+          title="仅支持文件名以 layer_data.json 结尾"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = e.target.files;
+            if (files?.length) {
+              void loadLocalLayerDataJsonFiles(files);
+            }
+            e.target.value = "";
+          }}
+        />
         <input
           ref={tumInputRef}
           type="file"
           accept=".txt,text/plain"
+          title="仅支持文件名以 .txt 结尾"
           multiple
           hidden
           onChange={(e) => {

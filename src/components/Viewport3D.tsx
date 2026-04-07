@@ -10,7 +10,15 @@ import type { SceneNode, Vec3 } from "@/scene/types";
 import { Canvas, type ThreeEvent, useFrame } from "@react-three/fiber";
 import { Billboard, Edges, GizmoHelper, GizmoViewport, Grid, Line, OrbitControls, Text } from "@react-three/drei";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { DoubleSide, Mesh as ThreeMesh, Vector3 } from "three";
+import {
+  DoubleSide,
+  InstancedMesh,
+  Mesh as ThreeMesh,
+  MeshStandardMaterial,
+  Object3D,
+  SphereGeometry,
+  Vector3,
+} from "three";
 import type { Group } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { Vector3Tuple } from "three";
@@ -146,6 +154,9 @@ function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPu
 
 /** World-space radius (m) for each vertex sphere in `road_links` point mode (visible only). */
 const ROAD_LINK_POINT_SPHERE_RADIUS = 0.12;
+
+/** Layer export point clouds (`all_boundary_pts` / `all_lane_line_pts`): instanced sphere radius. */
+const LAYER_DATA_POINT_SPHERE_RADIUS = 0.11;
 
 /** Invisible sphere used for picking when polyline degenerates to a single point (collider). */
 const ROAD_LINK_SINGLE_POINT_HIT_RADIUS = 0.38;
@@ -396,6 +407,76 @@ function RoadLinkVertexPoints({
         </mesh>
       ))}
     </group>
+  );
+}
+
+/** LayerData point cloud: one draw call per cloud; raycast disabled (visual only). */
+function LayerDataPointCloudInstanced({
+  points,
+  color,
+  nodeId,
+}: {
+  points: readonly Vec3[];
+  color: string;
+  nodeId: string;
+}) {
+  const meshRef = useRef<InstancedMesh>(null);
+  const dummy = useMemo(() => new Object3D(), []);
+  const geometry = useMemo(() => new SphereGeometry(LAYER_DATA_POINT_SPHERE_RADIUS, 8, 8), []);
+  const material = useMemo(
+    () =>
+      new MeshStandardMaterial({
+        metalness: 0.08,
+        roughness: 0.48,
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      geometry.dispose();
+      material.dispose();
+    };
+  }, [geometry, material]);
+
+  useLayoutEffect(() => {
+    material.color.set(color);
+  }, [color, material]);
+
+  useLayoutEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) {
+      return;
+    }
+    mesh.count = points.length;
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i]!;
+      dummy.position.set(p[0], p[1], p[2]);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [points, dummy]);
+
+  useLayoutEffect(() => {
+    const mesh = meshRef.current;
+    if (mesh) {
+      mesh.raycast = () => {};
+    }
+  }, [points.length]);
+
+  if (points.length === 0) {
+    return null;
+  }
+
+  return (
+    <instancedMesh
+      key={`${nodeId}-${points.length}`}
+      ref={meshRef}
+      args={[geometry, material, points.length]}
+      userData={{ nodeId }}
+      frustumCulled={false}
+    />
   );
 }
 
@@ -934,6 +1015,11 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
   const isRoadBoundaryRefTrajectory = node.payload?.role === "roadBoundaryRefTrajectory";
   const isTumTrajectory = node.payload?.role === "tumTrajectory";
   const isMapTrajectory = node.payload?.role === "mapTrajectory";
+  const isLayerDataGraphEdge = node.payload?.role === "layerDataGraphEdge";
+  const isLayerDataCenterNode = node.payload?.role === "layerDataCenterNode";
+  const isLayerDataBoundaryPointCloud = node.payload?.role === "layerDataBoundaryPointCloud";
+  const isLayerDataLanePointCloud = node.payload?.role === "layerDataLanePointCloud";
+  const isLayerDataPointCloud = isLayerDataBoundaryPointCloud || isLayerDataLanePointCloud;
   const payload = node.payload as Record<string, unknown> | undefined;
   const centerScene = payload?.centerScene as Vector3Tuple | undefined;
   const leftBoundaryPointsRaw = payload?.leftBoundaryPoints;
@@ -960,7 +1046,9 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
       isRoadBoundaryLine ||
       isRoadBoundaryRefTrajectory ||
       isTumTrajectory ||
-      isMapTrajectory
+      isMapTrajectory ||
+      isLayerDataGraphEdge ||
+      isLayerDataPointCloud
     ) {
       return null;
     }
@@ -977,6 +1065,8 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
     isPolyline,
     isTumTrajectory,
     isMapTrajectory,
+    isLayerDataGraphEdge,
+    isLayerDataPointCloud,
   ]);
 
   useEffect(() => {
@@ -1087,6 +1177,27 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
           points={pts}
           color={String(payload?.color ?? "#e67e22")}
           lineWidth={isSelected ? 3.25 : 2.1}
+          isSelected={isSelected}
+          selectedPulse={selectedPulse}
+          onSelect={onMeshClick}
+          disabled={nodeDisabled}
+        />
+      ) : null}
+      {isPolyline && isLayerDataPointCloud && pts && pts.length >= 1 ? (
+        <LayerDataPointCloudInstanced
+          points={pts}
+          color={String(
+            payload?.pointCloudColor ?? (isLayerDataBoundaryPointCloud ? "#4a9eff" : "#f5a623"),
+          )}
+          nodeId={node.id}
+        />
+      ) : null}
+      {isPolyline && isLayerDataGraphEdge && pts && pts.length >= 2 ? (
+        <PickableLine
+          nodeId={node.id}
+          points={pts}
+          color="#6ec9c9"
+          lineWidth={isSelected ? 2.75 : 2}
           isSelected={isSelected}
           selectedPulse={selectedPulse}
           onSelect={onMeshClick}
@@ -1211,19 +1322,53 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
         </mesh>
       ) : null}
       {isMesh ? (
-        <mesh userData={{ nodeId: node.id }} onClick={onMeshClick}>
-          <boxGeometry args={[0.7, 0.7, 0.7]} />
-          <meshStandardMaterial
-            color={isSelected ? SELECT_BASE_COLOR : "#a8a8a8"}
-            metalness={0.12}
-            roughness={0.65}
-            emissive={isSelected ? selectedEdgeColor : "#1a1a1a"}
-            emissiveIntensity={isSelected ? 0.35 + selectedPulse * 0.35 : 1}
-          />
-          {isSelected && isVolumeGeometry ? (
-            <Edges scale={1.05} threshold={8} color={selectedEdgeColor} />
-          ) : null}
-        </mesh>
+        isLayerDataCenterNode ? (
+          <>
+            <mesh userData={{ nodeId: node.id }} onClick={onMeshClick}>
+              <sphereGeometry args={[0.14, 14, 14]} />
+              <meshStandardMaterial
+                color={isSelected ? SELECT_BASE_COLOR : "#c9b87a"}
+                metalness={0.1}
+                roughness={0.55}
+                emissive={isSelected ? selectedEdgeColor : "#1a1508"}
+                emissiveIntensity={isSelected ? 0.4 + selectedPulse * 0.35 : 0.25}
+              />
+              {isSelected && isVolumeGeometry ? (
+                <Edges scale={1.08} threshold={10} color={selectedEdgeColor} />
+              ) : null}
+            </mesh>
+            <group position={[0, 0.24, 0]}>
+              <Billboard follow>
+                <Text
+                  userData={{ nodeId: node.id }}
+                  fontSize={0.26}
+                  color="#f2ead0"
+                  anchorX="center"
+                  anchorY="bottom"
+                  outlineWidth={0.028}
+                  outlineColor="#0a0a0c"
+                  onClick={onMeshClick}
+                >
+                  {String(payload?.id ?? "")}
+                </Text>
+              </Billboard>
+            </group>
+          </>
+        ) : (
+          <mesh userData={{ nodeId: node.id }} onClick={onMeshClick}>
+            <boxGeometry args={[0.7, 0.7, 0.7]} />
+            <meshStandardMaterial
+              color={isSelected ? SELECT_BASE_COLOR : "#a8a8a8"}
+              metalness={0.12}
+              roughness={0.65}
+              emissive={isSelected ? selectedEdgeColor : "#1a1a1a"}
+              emissiveIntensity={isSelected ? 0.35 + selectedPulse * 0.35 : 1}
+            />
+            {isSelected && isVolumeGeometry ? (
+              <Edges scale={1.05} threshold={8} color={selectedEdgeColor} />
+            ) : null}
+          </mesh>
+        )
       ) : null}
       {node.children.map((c) => (
         <SceneNodeView

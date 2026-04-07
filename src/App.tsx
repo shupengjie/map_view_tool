@@ -6,6 +6,7 @@ import "@/App.css";
 import { FileListPanel } from "@/components/FileListPanel";
 import { InspectorPanel } from "@/components/InspectorPanel";
 import { JsonMapDuplicateNotice } from "@/components/JsonMapDuplicateNotice";
+import { LayerDataDuplicateNotice } from "@/components/LayerDataDuplicateNotice";
 import { SceneTreePanel } from "@/components/SceneTreePanel";
 import { Toolbar } from "@/components/Toolbar";
 import { Viewport3D } from "@/components/Viewport3D";
@@ -39,6 +40,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <JsonMapDuplicateNotice />
+      <LayerDataDuplicateNotice />
       <Toolbar />
       <div className="app-main-panels">
         <PanelGroup direction="horizontal" autoSaveId="json-map-view-main">

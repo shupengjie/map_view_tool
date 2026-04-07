@@ -12,6 +12,7 @@ import { buildRegionIdToNodeIdsMap, extractRegionListFromParsedMap } from "@/sce
 import type { SceneNode, Vec3 } from "@/scene/types";
 import { MAP_FRAME_AXES_NODE_ID } from "@/scene/constants";
 import { isJsonMapFileName } from "@/utils/jsonMapFile";
+import { isLayerDataJsonFileName } from "@/utils/layerDataFile";
 import { parseTumTrajectoryFile } from "@/utils/tumTrajectory";
 import { create } from "zustand";
 
@@ -102,9 +103,13 @@ export interface EditorState {
    */
   readonly loadError: string | null;
   /**
-   * Second (or further) `*json_map.json` load blocked; user dismisses via floating bar 「确认」.
+   * Second (or further) JSON map file (see `isJsonMapFileName`) load blocked; user dismisses via floating bar 「确认」.
    */
   readonly jsonMapDuplicateNoticeOpen: boolean;
+  /**
+   * Second (or further) `*layer_data.json` load blocked; same UX as map duplicate notice.
+   */
+  readonly layerDataDuplicateNoticeOpen: boolean;
   /**
    * Node ids whose entire subtrees are omitted from the 3D viewport (scene tree still lists them).
    */
@@ -122,8 +127,10 @@ export interface EditorState {
    */
   readonly roadLinksPointRenderMode: ReadonlyMap<string, boolean>;
 
-  /** Read multiple local files, parse JSON, append documents, optionally activate the first new one. */
-  loadLocalJsonFiles: (files: FileList | File[]) => Promise<void>;
+  /** JSON map files: `.json` extension and basename contains `json_map` (chars may appear between `json_map` and `.json`). */
+  loadLocalJsonMapFiles: (files: FileList | File[]) => Promise<void>;
+  /** Layer export files: names must end with `layer_data.json`. */
+  loadLocalLayerDataJsonFiles: (files: FileList | File[]) => Promise<void>;
   /** Parse TUM trajectory `.txt` files; duplicate `file.name` is rejected. */
   loadLocalTumFiles: (files: FileList | File[]) => Promise<void>;
   removeDocument: (documentId: string) => void;
@@ -138,6 +145,7 @@ export interface EditorState {
   clearSelection: () => void;
   clearLoadError: () => void;
   dismissJsonMapDuplicateNotice: () => void;
+  dismissLayerDataDuplicateNotice: () => void;
   toggleRegionFilter: (regionId: number) => void;
   /** Toggle point-vs-line rendering for all geometry under a `road_links` layer group. */
   setRoadLinksPointRenderMode: (roadLinksLayerGroupId: string, pointMode: boolean) => void;
@@ -207,6 +215,154 @@ function pruneRoadLinksPointModes(
   return next;
 }
 
+const JSON_MAP_NAME_RULE_HINT =
+  "JSON 地图仅允许加载扩展名为 .json 且文件名中含 json_map 的文件（json_map 与末尾 .json 之间可有其他字符，例如 2_json_map (1).json）。";
+const LAYER_DATA_NAME_RULE_HINT = "Layer 数据仅允许加载文件名以 layer_data.json 结尾的文件。";
+const TUM_TXT_NAME_RULE_HINT = "TUM 轨迹仅允许加载文件名以 .txt 结尾的文件。";
+
+function isTumTrajectoryFileName(fileName: string): boolean {
+  return fileName.toLowerCase().endsWith(".txt");
+}
+
+type JsonLoadKind = "json_map" | "layer_data";
+
+async function loadLocalJsonDocumentsByKind(
+  files: FileList | File[],
+  kind: JsonLoadKind,
+  get: () => EditorState,
+  set: (partial: Partial<EditorState> | ((s: EditorState) => Partial<EditorState>)) => void,
+): Promise<void> {
+  const nameOk = kind === "json_map" ? isJsonMapFileName : isLayerDataJsonFileName;
+  const hint = kind === "json_map" ? JSON_MAP_NAME_RULE_HINT : LAYER_DATA_NAME_RULE_HINT;
+  const all = Array.from(files);
+  const list = all.filter((f) => nameOk(f.name));
+  const invalidNames = all.filter((f) => !nameOk(f.name)).map((f) => f.name);
+
+  if (list.length === 0) {
+    if (all.length === 0) {
+      return;
+    }
+    set({
+      loadError: invalidNames.length ? `${hint} 以下已忽略：${invalidNames.join("、")}` : hint,
+    });
+    return;
+  }
+
+  const newDocs: LoadedJsonDocument[] = [];
+  const skippedDuplicate: string[] = [];
+  const seenInBatch = new Set<string>();
+  const existingFp = new Set(get().documents.map((d) => d.fileFingerprint));
+  const jsonMapAlreadyLoaded = get().documents.some((d) => isJsonMapFileName(d.fileName));
+  const layerDataAlreadyLoaded = get().documents.some((d) => isLayerDataJsonFileName(d.fileName));
+  let jsonMapTakenInBatch = false;
+  let layerDataTakenInBatch = false;
+  let skippedJsonMapConflict = false;
+  let skippedLayerDataConflict = false;
+  let parseFailureCount = 0;
+
+  for (const file of list) {
+    const fp = fileFingerprint(file);
+    if (existingFp.has(fp) || seenInBatch.has(fp)) {
+      skippedDuplicate.push(file.name);
+      continue;
+    }
+    seenInBatch.add(fp);
+
+    if (kind === "json_map") {
+      if (jsonMapAlreadyLoaded || jsonMapTakenInBatch) {
+        skippedJsonMapConflict = true;
+        continue;
+      }
+    } else {
+      if (layerDataAlreadyLoaded || layerDataTakenInBatch) {
+        skippedLayerDataConflict = true;
+        continue;
+      }
+    }
+
+    let raw: unknown;
+    try {
+      const text = await file.text();
+      raw = JSON.parse(text) as unknown;
+    } catch (err) {
+      parseFailureCount += 1;
+      console.error(`[json-map-view] Skip invalid JSON: ${file.name}`, err);
+      continue;
+    }
+    const baseName = file.name.replace(/\.json$/i, "");
+    const root = parseJsonFileToSceneNodes(raw, { documentName: baseName || "document" });
+    const docId = newDocId();
+    newDocs.push(enrichLoadedDocument(docId, file.name, file.size, Date.now(), fp, raw, root));
+    existingFp.add(fp);
+    if (kind === "json_map") {
+      jsonMapTakenInBatch = true;
+    } else {
+      layerDataTakenInBatch = true;
+    }
+  }
+
+  const invalidNote =
+    invalidNames.length > 0 ? `（文件名不符合已忽略：${invalidNames.join("、")}）` : "";
+
+  set((s) => {
+    const jsonMapNoticeOpen = skippedJsonMapConflict ? true : s.jsonMapDuplicateNoticeOpen;
+    const layerDataNoticeOpen = skippedLayerDataConflict ? true : s.layerDataDuplicateNoticeOpen;
+
+    if (newDocs.length === 0) {
+      if (skippedDuplicate.length > 0) {
+        return {
+          loadError: `以下文件与已加载文件相同（名称+大小+修改时间），已跳过：${skippedDuplicate.join("、")}${invalidNote}`,
+          jsonMapDuplicateNoticeOpen: jsonMapNoticeOpen,
+          layerDataDuplicateNoticeOpen: layerDataNoticeOpen,
+        };
+      }
+      const onlyJsonMapBlocked =
+        kind === "json_map" &&
+        skippedJsonMapConflict &&
+        !skippedLayerDataConflict &&
+        parseFailureCount === 0 &&
+        skippedDuplicate.length === 0;
+      const onlyLayerDataBlocked =
+        kind === "layer_data" &&
+        skippedLayerDataConflict &&
+        !skippedJsonMapConflict &&
+        parseFailureCount === 0 &&
+        skippedDuplicate.length === 0;
+      return {
+        loadError:
+          onlyJsonMapBlocked || onlyLayerDataBlocked
+            ? invalidNote || null
+            : `未能加载任何文档（共 ${list.length} 个符合名称规则的文件）。请确认内容为合法 JSON，详情见控制台。${invalidNote}`,
+        jsonMapDuplicateNoticeOpen: jsonMapNoticeOpen,
+        layerDataDuplicateNoticeOpen: layerDataNoticeOpen,
+      };
+    }
+
+    const documents = [...s.documents, ...newDocs];
+    const activeDocumentId = s.activeDocumentId ?? newDocs[0]!.id;
+    const sceneGraphRoot = buildSceneRootFromSlices(documents, s.tumTrajectories);
+    const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
+    const dupNote =
+      skippedDuplicate.length > 0 ? `（已跳过重复文件：${skippedDuplicate.join("、")}）` : "";
+    let loadErrorMsg: string | null = dupNote ? `已加载 ${newDocs.length} 个文件。${dupNote}` : null;
+    if (invalidNote) {
+      loadErrorMsg = loadErrorMsg ? `${loadErrorMsg}${invalidNote}` : invalidNote;
+    }
+    return {
+      documents,
+      sceneGraphRoot,
+      activeDocumentId,
+      selectedNodeId: null,
+      loadError: loadErrorMsg,
+      jsonMapDuplicateNoticeOpen: jsonMapNoticeOpen,
+      layerDataDuplicateNoticeOpen: layerDataNoticeOpen,
+      activeRegionFilterId: null,
+      cameraFocusRequest: null,
+      roadLinksPointRenderMode,
+    };
+  });
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   documents: [],
   tumTrajectories: [],
@@ -215,113 +371,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedNodeId: null,
   loadError: null,
   jsonMapDuplicateNoticeOpen: false,
+  layerDataDuplicateNoticeOpen: false,
   /** Map-frame axes default off in viewport; toggled via scene tree eye. */
   hiddenNodeIds: new Set<string>([MAP_FRAME_AXES_NODE_ID]),
   activeRegionFilterId: null,
   cameraFocusRequest: null,
   roadLinksPointRenderMode: new Map<string, boolean>(),
 
-  loadLocalJsonFiles: async (files) => {
-    const list = Array.from(files).filter((f) => /\.json$/i.test(f.name) || f.type === "application/json");
-    if (list.length === 0) {
-      set({
-        loadError: "未识别到 JSON 文件（需扩展名 .json 或 MIME 为 application/json）。",
-      });
-      return;
-    }
+  loadLocalJsonMapFiles: async (files) => {
+    await loadLocalJsonDocumentsByKind(files, "json_map", get, set);
+  },
 
-    const newDocs: LoadedJsonDocument[] = [];
-    const skippedDuplicate: string[] = [];
-    const seenInBatch = new Set<string>();
-    const existingFp = new Set(get().documents.map((d) => d.fileFingerprint));
-    const jsonMapAlreadyLoaded = get().documents.some((d) => isJsonMapFileName(d.fileName));
-    let jsonMapTakenInBatch = false;
-    let skippedJsonMapConflict = false;
-    let parseFailureCount = 0;
-
-    for (const file of list) {
-      const fp = fileFingerprint(file);
-      if (existingFp.has(fp) || seenInBatch.has(fp)) {
-        skippedDuplicate.push(file.name);
-        continue;
-      }
-      seenInBatch.add(fp);
-
-      if (isJsonMapFileName(file.name)) {
-        if (jsonMapAlreadyLoaded || jsonMapTakenInBatch) {
-          skippedJsonMapConflict = true;
-          continue;
-        }
-      }
-
-      let raw: unknown;
-      try {
-        const text = await file.text();
-        raw = JSON.parse(text) as unknown;
-      } catch (err) {
-        parseFailureCount += 1;
-        console.error(`[json-map-view] Skip invalid JSON: ${file.name}`, err);
-        continue;
-      }
-      const baseName = file.name.replace(/\.json$/i, "");
-      const root = parseJsonFileToSceneNodes(raw, { documentName: baseName || "document" });
-      const docId = newDocId();
-      newDocs.push(
-        enrichLoadedDocument(docId, file.name, file.size, Date.now(), fp, raw, root),
-      );
-      existingFp.add(fp);
-      if (isJsonMapFileName(file.name)) {
-        jsonMapTakenInBatch = true;
-      }
-    }
-
-    set((s) => {
-      const noticeOpen = skippedJsonMapConflict ? true : s.jsonMapDuplicateNoticeOpen;
-
-      if (newDocs.length === 0) {
-        if (skippedDuplicate.length > 0) {
-          return {
-            loadError: `以下文件与已加载文件相同（名称+大小+修改时间），已跳过：${skippedDuplicate.join("、")}`,
-            jsonMapDuplicateNoticeOpen: noticeOpen,
-          };
-        }
-        const onlyJsonMapBlocked =
-          skippedJsonMapConflict && parseFailureCount === 0 && skippedDuplicate.length === 0;
-        return {
-          loadError: onlyJsonMapBlocked
-            ? null
-            : `未能加载任何文档（共 ${list.length} 个文件）。请确认内容为合法 JSON，详情见控制台。`,
-          jsonMapDuplicateNoticeOpen: noticeOpen,
-        };
-      }
-
-      const documents = [...s.documents, ...newDocs];
-      const activeDocumentId = s.activeDocumentId ?? newDocs[0]!.id;
-      const sceneGraphRoot = buildSceneRootFromSlices(documents, s.tumTrajectories);
-      const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
-      const dupNote =
-        skippedDuplicate.length > 0
-          ? `（已跳过重复文件：${skippedDuplicate.join("、")}）`
-          : "";
-      return {
-        documents,
-        sceneGraphRoot,
-        activeDocumentId,
-        selectedNodeId: null,
-        loadError: dupNote ? `已加载 ${newDocs.length} 个文件。${dupNote}` : null,
-        jsonMapDuplicateNoticeOpen: noticeOpen,
-        activeRegionFilterId: null,
-        cameraFocusRequest: null,
-        roadLinksPointRenderMode,
-      };
-    });
+  loadLocalLayerDataJsonFiles: async (files) => {
+    await loadLocalJsonDocumentsByKind(files, "layer_data", get, set);
   },
 
   loadLocalTumFiles: async (files) => {
-    const list = Array.from(files).filter((f) => /\.txt$/i.test(f.name) || f.type === "text/plain");
+    const all = Array.from(files);
+    const list = all.filter((f) => isTumTrajectoryFileName(f.name));
+    const invalidNames = all.filter((f) => !isTumTrajectoryFileName(f.name)).map((f) => f.name);
+    const invalidNote =
+      invalidNames.length > 0 ? `（文件名不符合已忽略：${invalidNames.join("、")}）` : "";
+
     if (list.length === 0) {
+      if (all.length === 0) {
+        return;
+      }
       set({
-        loadError: "未识别到轨迹文本文件（需扩展名 .txt）。",
+        loadError: invalidNames.length
+          ? `${TUM_TXT_NAME_RULE_HINT} 以下已忽略：${invalidNames.join("、")}`
+          : TUM_TXT_NAME_RULE_HINT,
       });
       return;
     }
@@ -371,18 +450,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (newItems.length === 0) {
         if (skippedDuplicate.length > 0 && !formatFailure) {
           return {
-            loadError: `已跳过同名轨迹文件（不允许重复加载）：${skippedDuplicate.join("、")}`,
+            loadError: `已跳过同名轨迹文件（不允许重复加载）：${skippedDuplicate.join("、")}${invalidNote}`,
           };
         }
         if (formatFailure) {
           return {
             loadError:
-              skippedDuplicate.length > 0
+              (skippedDuplicate.length > 0
                 ? `已跳过同名：${skippedDuplicate.join("、")}。数据不满足格式要求，加载失败`
-                : "数据不满足格式要求，加载失败",
+                : "数据不满足格式要求，加载失败") + invalidNote,
           };
         }
-        return { loadError: "未能加载任何轨迹文件。" };
+        return { loadError: `未能加载任何轨迹文件。${invalidNote}` };
       }
 
       const tumTrajectories = [...s.tumTrajectories, ...newItems];
@@ -391,14 +470,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const dupNote =
         skippedDuplicate.length > 0 ? `（已跳过同名文件：${skippedDuplicate.join("、")}）` : "";
       const errNote = formatFailure ? "；部分文件格式错误已跳过" : "";
+      let tumLoadErr: string | null =
+        formatFailure || dupNote ? `已加载 ${newItems.length} 条轨迹${dupNote}${errNote}` : null;
+      if (invalidNote) {
+        tumLoadErr = tumLoadErr ? `${tumLoadErr}${invalidNote}` : invalidNote;
+      }
       return {
         tumTrajectories,
         sceneGraphRoot,
         selectedNodeId: null,
-        loadError:
-          formatFailure || dupNote
-            ? `已加载 ${newItems.length} 条轨迹${dupNote}${errNote}`
-            : null,
+        loadError: tumLoadErr,
         activeRegionFilterId: null,
         cameraFocusRequest: null,
         roadLinksPointRenderMode,
@@ -517,6 +598,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   dismissJsonMapDuplicateNotice: () => {
     set({ jsonMapDuplicateNoticeOpen: false });
+  },
+
+  dismissLayerDataDuplicateNotice: () => {
+    set({ layerDataDuplicateNoticeOpen: false });
   },
 
   toggleRegionFilter: (regionId) => {

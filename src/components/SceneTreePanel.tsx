@@ -73,12 +73,29 @@ function TreeRows({
         onClick={(e) => {
           e.stopPropagation();
           onSelect(node.id);
-          if (hasChildren) {
-            onToggle(node.id);
-          }
         }}
       >
-        <span className="tree-chevron">{hasChildren ? (isOpen ? "▼" : "▶") : "·"}</span>
+        {hasChildren ? (
+          <button
+            type="button"
+            className="tree-chevron-btn"
+            aria-expanded={isOpen}
+            aria-label={isOpen ? "折叠子节点" : "展开子节点"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(node.id);
+              onSelect(node.id);
+            }}
+          >
+            <span className="tree-chevron" aria-hidden>
+              {isOpen ? "▼" : "▶"}
+            </span>
+          </button>
+        ) : (
+          <span className="tree-chevron tree-chevron-leaf" aria-hidden>
+            ·
+          </span>
+        )}
         <span className="tree-row-label">
           [{node.type}] {node.name}
         </span>
@@ -157,8 +174,10 @@ export function SceneTreePanel() {
     }
     setExpanded((prev) => {
       const next = new Set(prev);
-      for (const id of path) {
-        next.add(id);
+      // Only expand ancestors so the selected row is visible; do not re-expand the selected node
+      // (user may have just collapsed it — previously that was undone here and felt like a double toggle).
+      for (let i = 0; i < path.length - 1; i++) {
+        next.add(path[i]!);
       }
       return next;
     });

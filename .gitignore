@@ -5,3 +5,4 @@ dist
 coverage
 *.tsbuildinfo
 *json_map.json
+*layer_data.json

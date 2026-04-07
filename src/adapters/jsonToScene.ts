@@ -6,6 +6,7 @@
  * with bounded breadth/depth so accidental megabytes of JSON do not freeze the tab.
  */
 
+import { isLayerDataJsonRoot, parseLayerDataJsonToScene } from "@/adapters/layerDataToScene";
 import { isMapJsonRoot, parseMapJsonToSceneNodes } from "@/adapters/mapJsonToScene";
 import type { SceneNode, Vec3 } from "@/scene/types";
 
@@ -139,11 +140,14 @@ export interface JsonToSceneOptions {
 /**
  * Builds the **file-local** scene subtree from parsed JSON (no application scene root).
  * The store wraps each result in a `type: "json"` node under the global `场景` root.
- * Map JSON (detected by presence of `arrows` array) uses `mapJsonToScene.ts` rules; otherwise generic tree.
+ * Map JSON (`isMapJsonRoot`) uses `mapJsonToScene.ts`; layer export (`isLayerDataJsonRoot`) uses `layerDataToScene.ts`; otherwise generic tree.
  */
 export function parseJsonFileToSceneNodes(parsed: unknown, options: JsonToSceneOptions): SceneNode {
   if (isMapJsonRoot(parsed)) {
     return parseMapJsonToSceneNodes(parsed, options.documentName);
+  }
+  if (isLayerDataJsonRoot(parsed)) {
+    return parseLayerDataJsonToScene(parsed, options.documentName);
   }
   return jsonValueToNodes(parsed, options.documentName, "$", 0, 0, 1);
 }

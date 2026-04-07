@@ -52,6 +52,57 @@ function formatJsonish(v: unknown): string {
   return formatScalar(v);
 }
 
+/** Payload keys that represent a CSS color string in the inspector. */
+function isInspectorColorPayloadKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return k === "color" || (k.endsWith("color") && k !== "vectorcolor");
+}
+
+function resolveInspectorCssColor(v: unknown): string | null {
+  if (typeof v !== "string") {
+    return null;
+  }
+  const s = v.trim();
+  if (!s) {
+    return null;
+  }
+  if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(s)) {
+    return s;
+  }
+  if (/^rgba?\(\s*[^)]+\)$/i.test(s)) {
+    return s;
+  }
+  if (/^hsla?\(\s*[^)]+\)$/i.test(s)) {
+    return s;
+  }
+  if (typeof document !== "undefined") {
+    const el = document.createElement("div");
+    el.style.color = s;
+    if (el.style.color !== "") {
+      return s;
+    }
+  }
+  return null;
+}
+
+/** Color swatch (legend); falls back to text if the value is not a usable CSS color. */
+function InspectorColorLegend({ value }: { value: unknown }) {
+  const css = resolveInspectorCssColor(value);
+  if (!css) {
+    return <span className="inspector-value-text">{formatScalar(value)}</span>;
+  }
+  return (
+    <span className="inspector-color-legend" title={css}>
+      <span
+        className="inspector-color-swatch"
+        style={{ backgroundColor: css }}
+        role="img"
+        aria-label={css}
+      />
+    </span>
+  );
+}
+
 /** Bump / crossWalk: id, length, width, link_id, regionID */
 function EndPtRectInspector({
   title,
@@ -164,16 +215,6 @@ function RoadBoundaryInspector({
       <InspectorRow label="link_id">
         <span className="inspector-value-num">{formatScalar(payload.link_id)}</span>
       </InspectorRow>
-      <InspectorRow label="last_linked_RoadBoundary_ids">
-        <span className="inspector-value-mono inspector-value-wrap">
-          {formatJsonish(payload.last_linked_RoadBoundary_ids)}
-        </span>
-      </InspectorRow>
-      <InspectorRow label="next_linked_RoadBoundary_ids">
-        <span className="inspector-value-mono inspector-value-wrap">
-          {formatJsonish(payload.next_linked_RoadBoundary_ids)}
-        </span>
-      </InspectorRow>
     </InspectorSection>
   );
 }
@@ -277,6 +318,36 @@ function LaneLineInspector({
   );
 }
 
+function RoadBoundaryRefTrajectoryInspector({
+  payload,
+  sourceFile,
+  pointCount,
+}: {
+  payload: Record<string, unknown>;
+  sourceFile: string | null;
+  pointCount: number;
+}) {
+  return (
+    <InspectorSection title="参考轨迹线">
+      <InspectorRow label="来源文件">
+        <span className="inspector-value-text">{sourceFile ?? "—"}</span>
+      </InspectorRow>
+      <InspectorRow label="颜色">
+        <InspectorColorLegend value={payload.roadLinkColor} />
+      </InspectorRow>
+      <InspectorRow label="边界 id">
+        <span className="inspector-value-num">{formatScalar(payload.id)}</span>
+      </InspectorRow>
+      <InspectorRow label="link_id">
+        <span className="inspector-value-num">{formatScalar(payload.link_id)}</span>
+      </InspectorRow>
+      <InspectorRow label="轨迹点数量">
+        <span className="inspector-value-num">{formatScalar(pointCount)}</span>
+      </InspectorRow>
+    </InspectorSection>
+  );
+}
+
 function MapTrajectoryInspector({
   payload,
   sourceFile,
@@ -293,7 +364,7 @@ function MapTrajectoryInspector({
         <span className="inspector-value-num">{formatScalar(payload.trajectoryId)}</span>
       </InspectorRow>
       <InspectorRow label="颜色">
-        <span className="inspector-value-text">{formatScalar(payload.color)}</span>
+        <InspectorColorLegend value={payload.color} />
       </InspectorRow>
       <InspectorRow label="轨迹点数量">
         <span className="inspector-value-num">{formatScalar(payload.pointCount)}</span>
@@ -321,11 +392,70 @@ function TumTrajectoryInspector({
         <span className="inspector-value-text">{sourceFile ?? "—"}</span>
       </InspectorRow>
       <InspectorRow label="颜色">
-        <span className="inspector-value-text">{formatScalar(payload.color)}</span>
+        <InspectorColorLegend value={payload.color} />
       </InspectorRow>
       <InspectorRow label="轨迹点数量">
         <span className="inspector-value-num">{formatScalar(payload.pointCount)}</span>
       </InspectorRow>
+    </InspectorSection>
+  );
+}
+
+function LayerDataPointCloudInspector({
+  node,
+  payload,
+  sourceFile,
+}: {
+  node: SceneNode;
+  payload: Record<string, unknown>;
+  sourceFile: string | null;
+}) {
+  const n = node.polylinePoints?.length ?? 0;
+  return (
+    <InspectorSection title={node.name}>
+      <InspectorRow label="来源文件">
+        <span className="inspector-value-text">{sourceFile ?? "—"}</span>
+      </InspectorRow>
+      <InspectorRow label="颜色">
+        <InspectorColorLegend value={payload.pointCloudColor} />
+      </InspectorRow>
+      <InspectorRow label="点数量">
+        <span className="inspector-value-num">{formatScalar(n)}</span>
+      </InspectorRow>
+    </InspectorSection>
+  );
+}
+
+function LayerDataGraphEdgeInspector({
+  payload,
+  sourceFile,
+}: {
+  payload: Record<string, unknown>;
+  sourceFile: string | null;
+}) {
+  return (
+    <InspectorSection title="中心图连线">
+      <InspectorRow label="来源文件">
+        <span className="inspector-value-text">{sourceFile ?? "—"}</span>
+      </InspectorRow>
+      <InspectorRow label="fromId">
+        <span className="inspector-value-num">{formatScalar(payload.fromId)}</span>
+      </InspectorRow>
+      <InspectorRow label="toId">
+        <span className="inspector-value-num">{formatScalar(payload.toId)}</span>
+      </InspectorRow>
+    </InspectorSection>
+  );
+}
+
+/** Polyline nodes without a dedicated schema: no arrow-style fields. */
+function PolylineFallbackInspector({ sourceFile }: { sourceFile: string | null }) {
+  return (
+    <InspectorSection title="折线">
+      <InspectorRow label="来源文件">
+        <span className="inspector-value-text">{sourceFile ?? "—"}</span>
+      </InspectorRow>
+      <div className="inspector-empty inspector-empty--inline">无扩展属性。</div>
     </InspectorSection>
   );
 }
@@ -345,6 +475,15 @@ function PolylineInspector({
   if (role === "tumTrajectory" && p) {
     return <TumTrajectoryInspector payload={p} sourceFile={sourceFile} />;
   }
+  if (role === "roadBoundaryRefTrajectory" && p) {
+    return (
+      <RoadBoundaryRefTrajectoryInspector
+        payload={p}
+        sourceFile={sourceFile}
+        pointCount={node.polylinePoints?.length ?? 0}
+      />
+    );
+  }
   if (role === "bump" && p) {
     return <EndPtRectInspector title="减速带 (bump)" sourceFile={sourceFile} payload={p} />;
   }
@@ -357,7 +496,16 @@ function PolylineInspector({
   if (role === "roadBoundaryLine" && p) {
     return <RoadBoundaryInspector sourceFile={sourceFile} payload={p} />;
   }
-  return <ArrowPolylineInspector node={node} sourceFile={sourceFile} />;
+  if ((role === "layerDataBoundaryPointCloud" || role === "layerDataLanePointCloud") && p) {
+    return <LayerDataPointCloudInspector node={node} payload={p} sourceFile={sourceFile} />;
+  }
+  if (role === "layerDataGraphEdge" && p) {
+    return <LayerDataGraphEdgeInspector payload={p} sourceFile={sourceFile} />;
+  }
+  if (role === "arrow" && p) {
+    return <ArrowPolylineInspector node={node} sourceFile={sourceFile} />;
+  }
+  return <PolylineFallbackInspector sourceFile={sourceFile} />;
 }
 
 function GenericInspector({ node, sourceFile }: { node: SceneNode; sourceFile: string | null }) {
@@ -411,9 +559,13 @@ function GenericInspector({ node, sourceFile }: { node: SceneNode; sourceFile: s
         <InspectorSection title="附加数据">
           {Object.entries(payload).map(([k, v]) => (
             <InspectorRow key={k} label={k}>
-              <span className="inspector-value-mono inspector-value-wrap">
-                {typeof v === "object" && v !== null ? JSON.stringify(v) : formatScalar(v)}
-              </span>
+              {isInspectorColorPayloadKey(k) && typeof v === "string" ? (
+                <InspectorColorLegend value={v} />
+              ) : (
+                <span className="inspector-value-mono inspector-value-wrap">
+                  {typeof v === "object" && v !== null ? JSON.stringify(v) : formatScalar(v)}
+                </span>
+              )}
             </InspectorRow>
           ))}
         </InspectorSection>
