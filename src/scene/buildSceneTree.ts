@@ -12,6 +12,8 @@ import {
   TRAJECTORY_ROOT_ID,
 } from "@/scene/constants";
 import type { SceneNode, Vec3 } from "@/scene/types";
+import { isJsonMapFileName } from "@/utils/jsonMapFile";
+import { isLayerDataJsonFileName } from "@/utils/layerDataFile";
 
 /** Minimal slice needed to assemble the combined scene (avoids importing the store here). */
 export interface DocumentSceneSlice {
@@ -57,6 +59,34 @@ function jsonFileGridPosition(index: number, total: number): Vec3 {
   return [col * spacing - offset, 0, row * spacing - offset] as const;
 }
 
+/** Same map frame as json_map: layer_data overlays it and must share one grid cell, not an adjacent slot. */
+function isMapOverlayPairFile(fileName: string): boolean {
+  return isJsonMapFileName(fileName) || isLayerDataJsonFileName(fileName);
+}
+
+/**
+ * One grid slot per visual "map": json_map + layer_data for the same site share the same slot index.
+ * Other JSON files keep one slot each, in load order.
+ */
+function gridSlotIndexPerDocument(documents: readonly DocumentSceneSlice[]): { slots: number[]; slotCount: number } {
+  const slots: number[] = [];
+  let nextSlot = 0;
+  let mapOverlaySlot: number | null = null;
+  for (const d of documents) {
+    if (isMapOverlayPairFile(d.fileName)) {
+      if (mapOverlaySlot === null) {
+        mapOverlaySlot = nextSlot;
+        nextSlot += 1;
+      }
+      slots.push(mapOverlaySlot);
+    } else {
+      slots.push(nextSlot);
+      nextSlot += 1;
+    }
+  }
+  return { slots, slotCount: nextSlot };
+}
+
 /**
  * Builds the single scene root whose children are one `json` node per loaded file,
  * plus an optional `轨迹` group for TUM polylines.
@@ -65,13 +95,13 @@ export function buildSceneGraphRoot(
   documents: readonly DocumentSceneSlice[],
   tumTrajectories: readonly TumTrajectorySceneSlice[] = [],
 ): SceneNode {
-  const n = documents.length;
+  const { slots, slotCount } = gridSlotIndexPerDocument(documents);
   const jsonChildren: SceneNode[] = documents.map((d, index) => ({
     id: jsonDocumentWrapperId(d.id),
     name: d.fileName,
     type: "json",
     transform: {
-      position: jsonFileGridPosition(index, n),
+      position: jsonFileGridPosition(slots[index]!, slotCount),
     },
     children: [d.root],
     payload: {
