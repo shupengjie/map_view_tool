@@ -474,6 +474,11 @@
   margin-bottom: 0;
 }
 
+/* Match outer panel chrome (e.g. 场景树 / 属性), not inspector accent blue */
+.region-list-section .inspector-section-title {
+  color: var(--godot-text-dim);
+}
+
 .region-list-scroll {
   flex: 1 1 auto;
   min-height: 0;

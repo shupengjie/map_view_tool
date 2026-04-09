@@ -6,7 +6,7 @@ import { LANE_LINE_TYPE_LABELS } from "@/adapters/mapJsonToScene";
 import { RegionListPanel } from "@/components/RegionListPanel";
 import { findDocumentIdForSelectedNode } from "@/scene/graphUtils";
 import type { SceneNode } from "@/scene/types";
-import { selectActiveDocument, selectSelectedNode, useEditorStore } from "@/store/useEditorStore";
+import { selectSelectedNode, useEditorStore } from "@/store/useEditorStore";
 import type { ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
@@ -650,8 +650,6 @@ export function InspectorPanel() {
   const tumTrajectories = useEditorStore((s) => s.tumTrajectories);
   const sceneGraphRoot = useEditorStore((s) => s.sceneGraphRoot);
   const selectedId = useEditorStore((s) => s.selectedNodeId);
-  const activeDoc = useEditorStore(selectActiveDocument);
-  const hasRegionPanel = (activeDoc?.regionList?.length ?? 0) > 0;
 
   const owningDocId =
     sceneGraphRoot && selectedId
@@ -664,39 +662,28 @@ export function InspectorPanel() {
       : null;
   const sourceFile = doc?.fileName ?? (tumSourceName && tumSourceName.length > 0 ? tumSourceName : null);
 
-  if (documents.length === 0 && tumTrajectories.length === 0) {
-    return <div className="inspector-empty">加载文件后，此处显示选中节点属性。</div>;
-  }
-
-  const propertiesBody = !node ? (
-    <div className="inspector-empty">在场景树或 3D 视口中选择一个节点。</div>
-  ) : (
-    <InspectorContent node={node} sourceFile={sourceFile} />
-  );
-
-  if (hasRegionPanel) {
-    return (
-      <div className="inspector-panel-root">
-        <PanelGroup direction="vertical" autoSaveId="json-map-view-inspector" className="inspector-panel-group">
-          <Panel defaultSize={55} minSize={18}>
-            <div className="inspector-panel-region inspector-panel-region--props">{propertiesBody}</div>
-          </Panel>
-          <PanelResizeHandle className="panel-resize-handle" />
-          <Panel defaultSize={45} minSize={15}>
-            <div className="inspector-panel-region inspector-panel-region--regions">
-              <RegionListPanel />
-            </div>
-          </Panel>
-        </PanelGroup>
-      </div>
+  const propertiesBody =
+    documents.length === 0 && tumTrajectories.length === 0 ? (
+      <div className="inspector-empty">加载文件后，此处显示选中节点属性。</div>
+    ) : !node ? (
+      <div className="inspector-empty">在场景树或 3D 视口中选择一个节点。</div>
+    ) : (
+      <InspectorContent node={node} sourceFile={sourceFile} />
     );
-  }
 
   return (
     <div className="inspector-panel-root">
-      <div className="inspector-panel-region inspector-panel-region--props inspector-panel-region--fill">
-        {propertiesBody}
-      </div>
+      <PanelGroup direction="vertical" autoSaveId="json-map-view-inspector" className="inspector-panel-group">
+        <Panel defaultSize={55} minSize={18}>
+          <div className="inspector-panel-region inspector-panel-region--props">{propertiesBody}</div>
+        </Panel>
+        <PanelResizeHandle className="panel-resize-handle" />
+        <Panel defaultSize={45} minSize={15}>
+          <div className="inspector-panel-region inspector-panel-region--regions">
+            <RegionListPanel />
+          </div>
+        </Panel>
+      </PanelGroup>
     </div>
   );
 }

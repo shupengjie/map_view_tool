@@ -21,8 +21,18 @@ export function RegionListPanel() {
   const toggleRegionFilter = useEditorStore((s) => s.toggleRegionFilter);
 
   const list = activeDoc?.regionList;
+
   if (!list || list.length === 0) {
-    return null;
+    return (
+      <div className="inspector-godot region-list-panel">
+        <div className="inspector-section region-list-section">
+          <div className="inspector-section-title">区域</div>
+          <div className="inspector-section-body region-list-scroll">
+            <div className="inspector-empty">暂无区域数据（地图 JSON 含 regionList 时将在此列出）。</div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
