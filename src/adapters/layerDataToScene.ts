@@ -59,7 +59,7 @@ export function parseLayerDataJsonToScene(parsed: Record<string, unknown>, docum
       type: "polyline",
       children: [],
       polylinePoints: boundaryPts,
-      payload: { role: "layerDataBoundaryPointCloud", pointCloudColor: "#4a9eff", source: "layerData" },
+      payload: { role: "layerDataBoundaryPointCloud", pointCloudColor: "#f5a623", source: "layerData" },
     });
   }
 
@@ -71,7 +71,7 @@ export function parseLayerDataJsonToScene(parsed: Record<string, unknown>, docum
       type: "polyline",
       children: [],
       polylinePoints: lanePts,
-      payload: { role: "layerDataLanePointCloud", pointCloudColor: "#f5a623", source: "layerData" },
+      payload: { role: "layerDataLanePointCloud", pointCloudColor: "#ffffff", source: "layerData" },
     });
   }
 
