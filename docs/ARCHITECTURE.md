@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-**JSON Map View**（npm 包名 `json-map-view`）是一个在浏览器中运行的纯前端单页应用（SPA）。用户通过本地文件选择加载 **JSON** 与 **TUM 轨迹文本**，应用将数据解析为统一的内部**场景图**（`SceneNode` 树），再用 **React Three Fiber** 在 3D 视口中绘制。
+**JSON Map View**（npm 包名 `json-map-view`）是一个在浏览器中运行的纯前端单页应用（SPA）。用户通过本地文件选择加载 **JSON 地图**（`json_map` 命名规则）、**Layer 导出 JSON**（`*layer_data.json`）与 **TUM 轨迹文本**，应用将数据解析为统一的内部**场景图**（`SceneNode` 树），再用 **React Three Fiber** 在 3D 视口中绘制。
 
 - **无后端**：数据仅通过 `File` API 读入并在客户端 `JSON.parse`，不上传服务器。
 - **典型用途**：泊车 / HD Map 类 JSON 的结构化可视化、与 TUM 轨迹对齐查看、属性检查与区域筛选。
@@ -32,7 +32,7 @@
 flowchart TB
   UI[React UI Panels Toolbar]
   Store[Zustand useEditorStore]
-  Adapters[adapters jsonToScene mapJsonToScene]
+  Adapters[adapters jsonToScene mapJsonToScene layerDataToScene]
   Scene[scene buildSceneTree types graphUtils]
   R3F[Viewport3D R3F Three.js]
   UI --> Store
@@ -47,9 +47,9 @@ flowchart TB
 
 | 层级       | 职责                                              | 主要位置                                                                    |
 | -------- | ----------------------------------------------- | ----------------------------------------------------------------------- |
-| **表现层**  | 工具栏、场景树、已加载文件列表、3D 视口、属性/区域面板；Godot 风格主题        | `src/App.tsx`、`src/components/*.tsx`、`src/styles/godot-theme.css`       |
-| **状态层**  | 文档列表、TUM 轨迹、合并后的场景根、选中节点、隐藏集合、区域筛选、相机对焦请求、加载错误等 | `src/store/useEditorStore.ts`                                           |
-| **适配层**  | JSON → `SceneNode`：通用递归或 HD Map 专用解析            | `src/adapters/jsonToScene.ts`、`src/adapters/mapJsonToScene.ts`          |
+| **表现层**  | 顶栏「加载数据」菜单、场景树、已加载文件列表、3D 视口、属性/区域面板；Godot 风格主题 | `src/App.tsx`、`src/components/*.tsx`（含 `Toolbar`、`JsonMapDuplicateNotice`、`LayerDataDuplicateNotice`）、`src/styles/godot-theme.css` |
+| **状态层**  | 文档列表、TUM 轨迹、合并后的场景根、选中节点、隐藏集合、区域筛选、相机对焦请求、加载错误、Json 地图 / Layer 重复加载提示等 | `src/store/useEditorStore.ts` |
+| **适配层**  | JSON → `SceneNode`：HD Map、Layer 导出、通用有界递归 | `src/adapters/jsonToScene.ts`、`mapJsonToScene.ts`、`layerDataToScene.ts` |
 | **场景模型** | `SceneNode` 类型、合并多文件、图遍历工具                      | `src/scene/types.ts`、`buildSceneTree.ts`、`graphUtils.ts`、`constants.ts` |
 | **渲染层**  | 将 `SceneNode` 映射为 Three.js 对象、拾取、选中高亮、相机同步      | `src/components/Viewport3D.tsx`、`CameraFocusSync.tsx`                   |
 
@@ -64,12 +64,14 @@ flowchart TB
 | `src/main.tsx`                   | 挂载 React 根节点，引入全局样式                                         |
 | `src/App.tsx`                    | 根布局：顶栏 + 左（场景树 / 已加载文件）+ 中（3D 视口）+ 右（属性）                    |
 | `src/store/useEditorStore.ts`    | 加载/移除文档与轨迹、构建 `sceneGraphRoot`、选择、可见性、区域筛选等                 |
-| `src/adapters/jsonToScene.ts`    | 入口：识别 HD Map 根对象则调用 `mapJsonToScene`，否则对任意 JSON 做有界深度的递归占位树 |
-| `src/adapters/mapJsonToScene.ts` | 地图 JSON 各图层解析、车体系坐标到 Three.js 的变换                           |
-| `src/scene/buildSceneTree.ts`    | 多 JSON 文档 + TUM 合并为单一 `场景` 根；多文件在 XZ 平面网格排布                 |
+| `src/adapters/jsonToScene.ts`    | 入口：HD Map → `mapJsonToScene`；Layer 根 → `layerDataToScene`；否则有界深度递归占位树 |
+| `src/adapters/mapJsonToScene.ts` | 地图 JSON 各图层解析、车体系坐标到 Three.js 的变换 |
+| `src/adapters/layerDataToScene.ts` | Layer 导出（`all_boundary_pts` / `all_lane_line_pts` / `center_nodes`）→ 点云与图边等节点 |
+| `src/scene/buildSceneTree.ts`    | 多 JSON 文档 + TUM 合并为单一 `场景` 根；`json_map` 与 `*layer_data.json` 共用同一网格槽位，其余文件各占一格 |
 | `src/scene/graphUtils.ts`        | 按 id 查找节点、路径、文档归属等                                          |
 | `src/scene/regionMap.ts`         | `regionList` 提取与 `regionID` → 节点 id 映射（用于区域筛选）              |
-| `src/utils/jsonMapFile.ts`       | 判断文件名是否为 `*json_map.json`                                   |
+| `src/utils/jsonMapFile.ts`       | `isJsonMapFileName`：`.json` 且基名中含 `json_map` 词元（排除 `json_mapper` 等） |
+| `src/utils/layerDataFile.ts`     | `isLayerDataJsonFileName`：文件名以 `layer_data.json` 结尾 |
 | `src/utils/tumTrajectory.ts`     | TUM 格式轨迹解析                                                  |
 | `src/utils/roadLinkColors.ts`    | `road_links` 等线条配色                                          |
 
@@ -78,7 +80,7 @@ flowchart TB
 
 ## 5. 数据流（简述）
 
-1. **加载 JSON**：`File` → 文本 → `JSON.parse` → `parseJsonFileToSceneNodes` → 单文档 `SceneNode` 子树；可选提取 `regionList` 与构建 `regionIdToNodeIds`。
+1. **加载 JSON**：`File` → 文本 → `JSON.parse` → `parseJsonFileToSceneNodes`（先 Map、再 Layer 根判定、否则通用树）→ 单文档 `SceneNode` 子树；地图类可选提取 `regionList` 与构建 `regionIdToNodeIds`。Store 中 **Json地图** / **Layer数据** 两条入口分别用 `isJsonMapFileName` / `isLayerDataJsonFileName` 过滤文件名，并各自限制全局唯一实例。
 2. **合并场景**：`buildSceneGraphRoot` 为每个 JSON 文档生成 `type: "json"` 包装节点，并可选追加 `轨迹` 分组（TUM 折线）。
 3. **UI 与画布**：`sceneGraphRoot` 驱动场景树与 `Viewport3D`；选中 id 与 Three 对象 `userData.nodeId` 一致，便于射线拾取与属性面板同步。
 4. **场景树选中**：若需相机对准该节点包围盒，通过 `cameraFocusRequest` + `CameraFocusSync` 更新轨道控制器目标。
@@ -91,18 +93,28 @@ flowchart TB
 
 ---
 
-## 7. HD Map JSON 与坐标系
+## 7. HD Map JSON、Layer 导出与坐标系
+
+### HD Map
 
 - **识别**：`mapJsonToScene.ts` 中 `isMapJsonRoot` 根据根对象是否包含若干已知数组字段（如 `arrows`、`laneLines`、`road_links`、`regionList` 等）判断是否为地图 JSON。
 - **坐标映射**：文件坐标约定为车体系 x 前、y 左、z 上；Three.js 为 Y-up 时映射为：**场景 X = 文件 x，场景 Y = 文件 z，场景 Z = -文件 y**（避免左右镜像并保持与视口一致）。详见 `mapJsonPointToThree` / `mapJsonDirectionToThree` 注释。
 - **已实现图层**（节选）：箭头填充、车道线、减速带/斑马线端点矩形、停车位、立柱、`road_links` 及边界线等；具体以 `mapJsonToScene.ts` 中实现为准。
 - **跳过键**（不展开为场景内容）：`header`、`trajectories`、`parkingSlotsOptimize`、`mapId`、`timestampNs`（常量 `MAP_JSON_SKIPPED_KEYS`）。
 
+### Layer 导出（`layerDataToScene.ts`）
+
+- **识别**：`isLayerDataJsonRoot`：根对象至少包含数组字段 `all_boundary_pts`、`all_lane_line_pts`、`center_nodes` 之一。
+- **坐标**：点 `{x,y,z}` 经与 HD Map 相同的 `mapJsonPointToThree` 映射到场景。
+- **场景内容**：边界/车道线点云（`polyline` + `payload.role` 为 `layerDataBoundaryPointCloud` / `layerDataLanePointCloud`）、中心节点图边（`layerDataGraphEdge`）等；`Viewport3D` 与 `InspectorPanel` 按 `payload.role` 分支。`jsonToScene.ts` 中 **先** 判定 HD Map，**再** 判定 Layer，避免根对象同时含两类字段时歧义（地图优先）。
+
 ---
 
 ## 8. 关键业务规则
 
-- `***json_map.json` 唯一**：文件名（不区分大小写）以 `json_map.json` 结尾时，全局仅允许一个此类文件处于已加载状态；若再加载会触发提示条（需先移除已加载地图）。详见 `isJsonMapFileName` 与 `JsonMapDuplicateNotice`。
+- **Json 地图文件唯一**：`isJsonMapFileName` 为真的文件全局仅允许一个处于已加载状态；再加载会打开 `JsonMapDuplicateNotice`，用户点 **确认** 关闭后需先在「已加载文件」中移除已有项。命名规则见 `src/utils/jsonMapFile.ts`（不是简单的「必须以 `json_map.json` 结尾」）。
+- **Layer 数据文件唯一**：`isLayerDataJsonFileName`（文件名以 `layer_data.json` 结尾）同理，由 `LayerDataDuplicateNotice` 提示。
+- **地图与 Layer 共槽**：`buildSceneTree` 中 `isMapOverlayPairFile` 将两类文件排在同一 XZ 网格索引，便于与 HD Map 叠显。
 - **重复文件**：同一 JSON 文件以「名称 + 大小 + 最后修改时间」指纹去重；TUM 以**文件名**去重。
 - **区域筛选**：`regionList` 存在时，右侧面板可对某区域点击「筛选」；视口仅绘制 `payload.regionID` 与该区域 id 匹配的节点，无 `regionID` 的节点仍始终绘制。再次点击同一「筛选」可关闭筛选。
 
@@ -113,6 +125,7 @@ flowchart TB
 - **新 JSON 格式**：在 `jsonToScene.ts` 增加分支或新增 adapter，将解析结果接到 `SceneNode`；尽量保持 `SceneNode` 语义稳定，仅在需要新几何/交互时扩展 `type` 或 `payload`。
 - **新几何表现**：在 `Viewport3D.tsx` 中按 `SceneNode.type`（及必要时的 `payload`）增加渲染分支。
 - **地图新图层**：在 `mapJsonToScene.ts` 中扩展解析，并文档化坐标与 `payload` 字段。
+- **Layer 新字段**：在 `layerDataToScene.ts` 与 `Viewport3D.tsx` / `InspectorPanel.tsx` 中扩展，保持与现有 `payload.role` 约定一致。
 
 ---
 
