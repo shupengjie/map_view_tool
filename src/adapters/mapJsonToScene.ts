@@ -508,7 +508,6 @@ function parseRoadLinksLayer(raw: unknown): SceneNode[] {
     const rl = item as RawRoadLink;
     const colorHex = roadLinkLineColorHex(ri);
     const boundaryChildren: SceneNode[] = [];
-    const refTrajectoryChildren: SceneNode[] = [];
     const rbData = rl.road_boundarys_data;
     if (Array.isArray(rbData)) {
       for (let bi = 0; bi < rbData.length; bi++) {
@@ -530,51 +529,30 @@ function parseRoadLinksLayer(raw: unknown): SceneNode[] {
           next_linked_RoadBoundary_ids: bd.next_linked_RoadBoundary_ids,
         };
         const refPts = parseArrowPoints(bd.ref_traj_points);
-        if (!leftPts && !rightPts) {
+        if (!leftPts && !rightPts && !refPts) {
           continue;
-        }
-        if (refPts && refPts.length >= 2) {
-          refTrajectoryChildren.push({
-            id: newId(),
-            name: "参考轨迹线",
-            type: "polyline",
-            children: [],
-            polylinePoints: refPts,
-            payload: {
-              role: "roadBoundaryRefTrajectory",
-              roadLinkColor: colorHex,
-              id: bd.id,
-              link_id: bd.link_id,
-            },
-          });
         }
         boundaryChildren.push({
           id: newId(),
-          name: `边界线 ${boundaryId}`,
+          name: `道路边界线 ${boundaryId}`,
           type: "polyline",
           children: [],
+          polylinePoints: refPts ?? [],
           payload: {
             ...basePayload,
-            side: "both" as const,
             leftBoundaryPoints: leftPts ?? [],
             rightBoundaryPoints: rightPts ?? [],
+            refTrajectoryPoints: refPts ?? [],
           },
         });
       }
     }
     const roadLinkId = typeof rl.id === "number" ? rl.id : ri;
-    const roadBoundaryNode: SceneNode = {
-      id: newId(),
-      name: "道路边界线",
-      type: "group",
-      children: [...boundaryChildren, ...refTrajectoryChildren],
-      payload: { role: "roadBoundaryRoot", roadLinkColor: colorHex },
-    };
     nodes.push({
       id: newId(),
       name: `roadLink ${roadLinkId}`,
       type: "group",
-      children: [roadBoundaryNode],
+      children: boundaryChildren,
       payload: {
         role: "roadLink",
         id: rl.id,

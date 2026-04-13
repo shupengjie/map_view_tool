@@ -481,80 +481,32 @@ function LayerDataPointCloudInstanced({
   );
 }
 
-/** `road_links` leaf: merged left/right — visible switches with point mode; colliders always line geometry. */
-function MergedRoadBoundaryRoadLinksView({
-  mergedLeftBoundaryPoints,
-  mergedRightBoundaryPoints,
-  roadLinksPointMode,
+function RoadBoundaryPointsVisualOnly({
+  leftPoints,
+  rightPoints,
   roadLinkColor,
   nodeId,
   isSelected,
-  selectedPulse,
-  nodeDisabled,
-  onMeshClick,
 }: {
-  mergedLeftBoundaryPoints: readonly Vec3[];
-  mergedRightBoundaryPoints: readonly Vec3[];
-  roadLinksPointMode: boolean;
+  leftPoints: readonly Vec3[];
+  rightPoints: readonly Vec3[];
   roadLinkColor: string;
   nodeId: string;
   isSelected: boolean;
-  selectedPulse: number;
-  nodeDisabled: boolean;
-  onMeshClick: (e: ThreeEvent<MouseEvent>) => void;
 }) {
-  const [hoverL, setHoverL] = useState(false);
-  const [hoverR, setHoverR] = useState(false);
-  const colorL = isSelected ? SELECT_BASE_COLOR : hoverL ? LINE_HOVER_COLOR : roadLinkColor;
-  const colorR = isSelected ? SELECT_BASE_COLOR : hoverR ? LINE_HOVER_COLOR : roadLinkColor;
-  const lw = isSelected ? 3 : 1.5;
-  const hasCollidableL = mergedLeftBoundaryPoints.length >= 1;
-  const hasCollidableR = mergedRightBoundaryPoints.length >= 1;
-
+  const pointColor = isSelected ? SELECT_BASE_COLOR : roadLinkColor;
   return (
     <>
-      {!roadLinksPointMode && mergedLeftBoundaryPoints.length >= 2 && (
-        <RoadLinkVisibleLine points={mergedLeftBoundaryPoints} color={colorL} lineWidth={lw} nodeId={nodeId} />
-      )}
-      {!roadLinksPointMode && mergedRightBoundaryPoints.length >= 2 && (
-        <RoadLinkVisibleLine points={mergedRightBoundaryPoints} color={colorR} lineWidth={lw} nodeId={nodeId} />
-      )}
-      {roadLinksPointMode && mergedLeftBoundaryPoints.length >= 1 && (
-        <RoadLinkVertexPoints points={mergedLeftBoundaryPoints} color={colorL} nodeId={nodeId} />
-      )}
-      {roadLinksPointMode && mergedRightBoundaryPoints.length >= 1 && (
-        <RoadLinkVertexPoints points={mergedRightBoundaryPoints} color={colorR} nodeId={nodeId} />
-      )}
-      {hasCollidableL ? (
-        <PickableLineColliderTrack
-          points={mergedLeftBoundaryPoints}
-          nodeId={nodeId}
-          lineWidth={lw}
-          isSelected={isSelected}
-          selectedPulse={selectedPulse}
-          disabled={nodeDisabled}
-          onSelect={onMeshClick}
-          onHoverChange={setHoverL}
-        />
-      ) : null}
-      {hasCollidableR ? (
-        <PickableLineColliderTrack
-          points={mergedRightBoundaryPoints}
-          nodeId={nodeId}
-          lineWidth={lw}
-          isSelected={isSelected}
-          selectedPulse={selectedPulse}
-          disabled={nodeDisabled}
-          onSelect={onMeshClick}
-          onHoverChange={setHoverR}
-        />
-      ) : null}
+      {leftPoints.length >= 1 ? <RoadLinkVertexPoints points={leftPoints} color={pointColor} nodeId={nodeId} /> : null}
+      {rightPoints.length >= 1 ? <RoadLinkVertexPoints points={rightPoints} color={pointColor} nodeId={nodeId} /> : null}
     </>
   );
 }
 
-function RoadLinkSingleBoundaryLeaf({
-  pts,
+function RoadLinkBoundaryLeaf({
+  refPts,
+  leftPts,
+  rightPts,
   roadLinksPointMode,
   roadLinkColor,
   nodeId,
@@ -563,7 +515,9 @@ function RoadLinkSingleBoundaryLeaf({
   nodeDisabled,
   onMeshClick,
 }: {
-  pts: readonly Vec3[];
+  refPts: readonly Vec3[];
+  leftPts: readonly Vec3[];
+  rightPts: readonly Vec3[];
   roadLinksPointMode: boolean;
   roadLinkColor: string;
   nodeId: string;
@@ -572,30 +526,27 @@ function RoadLinkSingleBoundaryLeaf({
   nodeDisabled: boolean;
   onMeshClick: (e: ThreeEvent<MouseEvent>) => void;
 }) {
-  const [hover, setHover] = useState(false);
-  const showColor = isSelected ? SELECT_BASE_COLOR : hover ? LINE_HOVER_COLOR : roadLinkColor;
-  const lw = isSelected ? 3 : 1.5;
-
   return (
     <>
-      {!roadLinksPointMode && pts.length >= 2 && (
-        <RoadLinkVisibleLine points={pts} color={showColor} lineWidth={lw} nodeId={nodeId} />
-      )}
-      {roadLinksPointMode && pts.length >= 1 && (
-        <RoadLinkVertexPoints points={pts} color={showColor} nodeId={nodeId} />
-      )}
-      {pts.length >= 1 ? (
-        <PickableLineColliderTrack
-          points={pts}
+      {refPts.length >= (roadLinksPointMode ? 1 : 2) ? (
+        <RoadLinkRefTrajectoryLeaf
+          pts={refPts}
+          roadLinksPointMode={roadLinksPointMode}
+          roadLinkColor={roadLinkColor}
           nodeId={nodeId}
-          lineWidth={lw}
           isSelected={isSelected}
           selectedPulse={selectedPulse}
-          disabled={nodeDisabled}
-          onSelect={onMeshClick}
-          onHoverChange={setHover}
+          nodeDisabled={nodeDisabled}
+          onMeshClick={onMeshClick}
         />
       ) : null}
+      <RoadBoundaryPointsVisualOnly
+        leftPoints={leftPts}
+        rightPoints={rightPts}
+        roadLinkColor={roadLinkColor}
+        nodeId={nodeId}
+        isSelected={isSelected}
+      />
     </>
   );
 }
@@ -1025,10 +976,10 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
   const centerScene = payload?.centerScene as Vector3Tuple | undefined;
   const leftBoundaryPointsRaw = payload?.leftBoundaryPoints;
   const rightBoundaryPointsRaw = payload?.rightBoundaryPoints;
+  const refTrajectoryPointsRaw = payload?.refTrajectoryPoints;
   const mergedLeftBoundaryPoints = useMemo(() => asVec3List(leftBoundaryPointsRaw), [leftBoundaryPointsRaw]);
   const mergedRightBoundaryPoints = useMemo(() => asVec3List(rightBoundaryPointsRaw), [rightBoundaryPointsRaw]);
-  const hasMergedRoadBoundary =
-    isRoadBoundaryLine && (mergedLeftBoundaryPoints.length >= 2 || mergedRightBoundaryPoints.length >= 2);
+  const roadBoundaryRefPoints = useMemo(() => asVec3List(refTrajectoryPointsRaw), [refTrajectoryPointsRaw]);
   const regionIdVal = payload?.regionID;
   const hiddenByRegionFilter =
     activeRegionFilterId !== null &&
@@ -1124,26 +1075,11 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
       rotation={rotation}
       visible={visible}
     >
-      {isPolyline && hasMergedRoadBoundary ? (
-        <MergedRoadBoundaryRoadLinksView
-          mergedLeftBoundaryPoints={mergedLeftBoundaryPoints}
-          mergedRightBoundaryPoints={mergedRightBoundaryPoints}
-          roadLinksPointMode={roadLinksPointMode}
-          roadLinkColor={String(payload?.roadLinkColor ?? "#cccccc")}
-          nodeId={node.id}
-          isSelected={isSelected}
-          selectedPulse={selectedPulse}
-          nodeDisabled={nodeDisabled}
-          onMeshClick={onMeshClick}
-        />
-      ) : null}
-      {isPolyline &&
-      isRoadBoundaryLine &&
-      !hasMergedRoadBoundary &&
-      pts &&
-      pts.length >= (roadLinksPointMode ? 1 : 2) ? (
-        <RoadLinkSingleBoundaryLeaf
-          pts={pts}
+      {isPolyline && isRoadBoundaryLine ? (
+        <RoadLinkBoundaryLeaf
+          refPts={roadBoundaryRefPoints}
+          leftPts={mergedLeftBoundaryPoints}
+          rightPts={mergedRightBoundaryPoints}
           roadLinksPointMode={roadLinksPointMode}
           roadLinkColor={String(payload?.roadLinkColor ?? "#cccccc")}
           nodeId={node.id}

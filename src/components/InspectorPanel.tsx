@@ -204,9 +204,6 @@ function RoadBoundaryInspector({
       <InspectorRow label="来源文件">
         <span className="inspector-value-text">{sourceFile ?? "—"}</span>
       </InspectorRow>
-      <InspectorRow label="侧">
-        <span className="inspector-value-text">{formatScalar(payload.side)}</span>
-      </InspectorRow>
       <InspectorRow label="id">
         <span className="inspector-value-num">{formatScalar(payload.id)}</span>
       </InspectorRow>
@@ -215,6 +212,21 @@ function RoadBoundaryInspector({
       </InspectorRow>
       <InspectorRow label="link_id">
         <span className="inspector-value-num">{formatScalar(payload.link_id)}</span>
+      </InspectorRow>
+      <InspectorRow label="ref_traj_points 数量">
+        <span className="inspector-value-num">
+          {formatScalar(Array.isArray(payload.refTrajectoryPoints) ? payload.refTrajectoryPoints.length : 0)}
+        </span>
+      </InspectorRow>
+      <InspectorRow label="left_points 数量">
+        <span className="inspector-value-num">
+          {formatScalar(Array.isArray(payload.leftBoundaryPoints) ? payload.leftBoundaryPoints.length : 0)}
+        </span>
+      </InspectorRow>
+      <InspectorRow label="right_points 数量">
+        <span className="inspector-value-num">
+          {formatScalar(Array.isArray(payload.rightBoundaryPoints) ? payload.rightBoundaryPoints.length : 0)}
+        </span>
       </InspectorRow>
     </InspectorSection>
   );

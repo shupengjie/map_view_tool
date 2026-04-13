@@ -61,12 +61,17 @@ npm run dev
 - **单击对象**：选中对应场景节点。
 - **单击空白**：清除选中。
 - **网格与辅助**：地面网格与坐标系辅助显示，便于对齐。
+- **`road_links` 渲染规则**（道路边界线节点）：
+  - 场景树中，`roadLink` 下的「道路边界线」为叶子节点（不再展开 `ref_traj_points` / 左右边界子节点）。
+  - `ref_traj_points`：渲染和点选逻辑保持原有行为；受「点渲染模式」开关影响（线/点）。
+  - `road_boundary_left_points` 与 `road_boundary_right_points`：始终只渲染为小球，不连线，且不支持点选。
 
 ### 4.5 右栏 — 属性与区域
 
 - **属性**：展示当前选中节点相关的结构化字段（非原始 JSON 全文）；内容依赖节点类型与 `payload`。
 - **区域**：当**活动文档**为包含 `regionList` 的地图 JSON 时显示；列出各区域的名称、id、高度与区域连接等字段。
 - **筛选**：某一区域行的 **筛选** 按钮用于在视口中只显示带相同 `regionID` 的几何；**无** `regionID` 的对象始终显示。再次点击已高亮的「筛选」可关闭筛选。
+- **`road_links` 点渲染模式开关**：仅作用于 `ref_traj_points`，不影响 `road_boundary_left_points` / `road_boundary_right_points`（后二者始终为点球显示）。
 
 ---
 

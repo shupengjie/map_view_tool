@@ -101,6 +101,10 @@ flowchart TB
 - **坐标映射**：文件坐标约定为车体系 x 前、y 左、z 上；Three.js 为 Y-up 时映射为：**场景 X = 文件 x，场景 Y = 文件 z，场景 Z = -文件 y**（避免左右镜像并保持与视口一致）。详见 `mapJsonPointToThree` / `mapJsonDirectionToThree` 注释。
 - **已实现图层**（节选）：箭头填充、车道线、减速带/斑马线端点矩形、停车位、立柱、`road_links` 及边界线等；具体以 `mapJsonToScene.ts` 中实现为准。
 - **跳过键**（不展开为场景内容）：`header`、`trajectories`、`parkingSlotsOptimize`、`mapId`、`timestampNs`（常量 `MAP_JSON_SKIPPED_KEYS`）。
+- **`road_links`（当前实现）**：
+  - 场景树：`road_links` → `roadLink N` → `道路边界线 M`（叶子节点，不再展开子节点）。
+  - 数据承载：单个道路边界线节点 `payload` 同时包含 `refTrajectoryPoints`、`leftBoundaryPoints`、`rightBoundaryPoints`。
+  - 渲染交互：`refTrajectoryPoints` 保持原点选行为并受点渲染模式开关影响；`left/right boundary points` 仅作小球可视化，不参与点选。
 
 ### Layer 导出（`layerDataToScene.ts`）
 
@@ -117,6 +121,7 @@ flowchart TB
 - **地图与 Layer 共槽**：`buildSceneTree` 中 `isMapOverlayPairFile` 将两类文件排在同一 XZ 网格索引，便于与 HD Map 叠显。
 - **重复文件**：同一 JSON 文件以「名称 + 大小 + 最后修改时间」指纹去重；TUM 以**文件名**去重。
 - **区域筛选**：`regionList` 存在时，右侧面板可对某区域点击「筛选」；视口仅绘制 `payload.regionID` 与该区域 id 匹配的节点，无 `regionID` 的节点仍始终绘制。再次点击同一「筛选」可关闭筛选。
+- **`road_links` 点渲染模式作用域**：仅切换 `refTrajectoryPoints` 的线/点显示；`leftBoundaryPoints` / `rightBoundaryPoints` 不受开关影响，始终为点球显示且不可拾取。
 
 ---
 
