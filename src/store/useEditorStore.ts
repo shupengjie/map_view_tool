@@ -126,6 +126,12 @@ export interface EditorState {
    * Absent or false: line mode (default).
    */
   readonly roadLinksPointRenderMode: ReadonlyMap<string, boolean>;
+  /** When true, left-click places distance-measure points; orbit rotate uses middle mouse only (see viewport hint). */
+  readonly measureToolActive: boolean;
+  /** First scene-space point (m), or null until placed. */
+  readonly measurePointA: Vec3 | null;
+  /** Second scene-space point (m), or null until placed. */
+  readonly measurePointB: Vec3 | null;
 
   /** JSON map files: `.json` extension and basename contains `json_map` (chars may appear between `json_map` and `.json`). */
   loadLocalJsonMapFiles: (files: FileList | File[]) => Promise<void>;
@@ -149,6 +155,13 @@ export interface EditorState {
   toggleRegionFilter: (regionId: number) => void;
   /** Toggle point-vs-line rendering for all geometry under a `road_links` layer group. */
   setRoadLinksPointRenderMode: (roadLinksLayerGroupId: string, pointMode: boolean) => void;
+  /** Enables or disables 3D viewport distance tool; disabling clears both measure points. */
+  setMeasureToolActive: (active: boolean) => void;
+  /**
+   * While `measureToolActive`, records a scene point: first click sets A, second sets B;
+   * a third click starts a new segment (A only, B cleared).
+   */
+  addMeasurePoint: (p: Vec3) => void;
 }
 
 function newDocId(): string {
@@ -377,6 +390,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeRegionFilterId: null,
   cameraFocusRequest: null,
   roadLinksPointRenderMode: new Map<string, boolean>(),
+  measureToolActive: false,
+  measurePointA: null,
+  measurePointB: null,
 
   loadLocalJsonMapFiles: async (files) => {
     await loadLocalJsonDocumentsByKind(files, "json_map", get, set);
@@ -619,6 +635,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         next.delete(roadLinksLayerGroupId);
       }
       return { roadLinksPointRenderMode: next };
+    });
+  },
+
+  setMeasureToolActive: (active) => {
+    set({
+      measureToolActive: active,
+      measurePointA: null,
+      measurePointB: null,
+    });
+  },
+
+  addMeasurePoint: (p) => {
+    set((s) => {
+      if (!s.measureToolActive) {
+        return s;
+      }
+      if (!s.measurePointA) {
+        return { measurePointA: p, measurePointB: null };
+      }
+      if (!s.measurePointB) {
+        return { measurePointB: p };
+      }
+      return { measurePointA: p, measurePointB: null };
     });
   },
 }));

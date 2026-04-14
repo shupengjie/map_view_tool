@@ -4,10 +4,12 @@
  */
 
 import { CameraFocusSync } from "@/components/CameraFocusSync";
+import { MeasureToolScene } from "@/components/ViewportMeasureTool";
 import { useEditorStore } from "@/store/useEditorStore";
 import { LANE_LINE_TYPE_ROAD_BOUNDARY } from "@/adapters/mapJsonToScene";
 import { buildArrowPolygonFillGeometry } from "@/scene/arrowPolygonFill";
 import type { SceneNode, Vec3 } from "@/scene/types";
+import { MAP_FRAME_AXES_NODE_ID, SCENE_BACKGROUND_GRID_NODE_ID } from "@/scene/constants";
 import { Canvas, type ThreeEvent, useFrame } from "@react-three/fiber";
 import { Billboard, Edges, GizmoHelper, GizmoViewport, Grid, Line, OrbitControls, Text } from "@react-three/drei";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
@@ -16,6 +18,7 @@ import {
   InstancedMesh,
   Mesh as ThreeMesh,
   MeshStandardMaterial,
+  MOUSE,
   Object3D,
   SphereGeometry,
   Vector3,
@@ -733,7 +736,7 @@ function SceneBackgroundGridNodeView({
   }, [visible]);
 
   return (
-    <group ref={groupRef} visible={visible}>
+    <group ref={groupRef} visible={visible} userData={{ nodeId: SCENE_BACKGROUND_GRID_NODE_ID }}>
       <Grid
         infiniteGrid
         fadeDistance={SCENE_GRID_FADE_DISTANCE}
@@ -859,7 +862,7 @@ function MapFrameAxesNodeView({
   }, [yh, ts, tl]);
 
   return (
-    <group ref={groupRef} visible={visible}>
+    <group ref={groupRef} visible={visible} userData={{ nodeId: MAP_FRAME_AXES_NODE_ID }}>
       <Line points={xSeg} color={cx} lineWidth={lw} depthTest depthWrite={false} transparent opacity={0.95} />
       <Line points={ySeg} color={cy} lineWidth={lw} depthTest depthWrite={false} transparent opacity={0.95} />
       <Line points={zSeg} color={cz} lineWidth={lw} depthTest depthWrite={false} transparent opacity={0.95} />
@@ -1389,6 +1392,7 @@ function SceneContent() {
         />
       </GizmoHelper>
       <SceneNodeView node={root} />
+      <MeasureToolScene />
     </>
   );
 }
@@ -1396,7 +1400,10 @@ function SceneContent() {
 const MAX_ORBIT_DISTANCE = 200;
 const MAX_CAMERA_Y = 465;
 
-/** Wheel zoom speed scales ~linearly with camera–target distance; max zoom out via maxDistance; max altitude via Y clamp. */
+/**
+ * Wheel zoom speed scales ~linearly with camera–target distance; max zoom out via maxDistance; max altitude via Y clamp.
+ * Middle-button drag rotates (not dolly); wheel zooms. In measure mode, left click is captured before controls see pointerdown.
+ */
 function OrbitControlsAdaptive({ controlsRef }: { readonly controlsRef: MutableRefObject<OrbitControlsImpl | null> }) {
   useFrame(() => {
     const c = controlsRef.current;
@@ -1418,6 +1425,12 @@ function OrbitControlsAdaptive({ controlsRef }: { readonly controlsRef: MutableR
       makeDefault
       enableDamping
       dampingFactor={0.08}
+      enableZoom
+      mouseButtons={{
+        LEFT: MOUSE.ROTATE,
+        MIDDLE: MOUSE.ROTATE,
+        RIGHT: MOUSE.PAN,
+      }}
       minDistance={1.2}
       maxDistance={MAX_ORBIT_DISTANCE}
       minPolarAngle={0.08}
@@ -1436,21 +1449,105 @@ function ViewportRig() {
   );
 }
 
+function ViewportToolbarFab() {
+  const [expanded, setExpanded] = useState(false);
+  const measureToolActive = useEditorStore((s) => s.measureToolActive);
+  const setMeasureToolActive = useEditorStore((s) => s.setMeasureToolActive);
+
+  return (
+    <div className="viewport-toolbar-fab" role="toolbar" aria-label="3D 视口工具">
+      {expanded ? (
+        <div className="viewport-toolbar-fab-tools">
+          <button
+            type="button"
+            className={`viewport-toolbar-fab-tool${measureToolActive ? " viewport-toolbar-fab-tool--active" : ""}`}
+            title={
+              measureToolActive
+                ? "关闭距离测量（Esc 也可退出）"
+                : "距离测量：左键选两点；中键拖动旋转；滚轮缩放；右键平移"
+            }
+            aria-label="距离测量"
+            aria-pressed={measureToolActive}
+            onClick={() => setMeasureToolActive(!measureToolActive)}
+          >
+            <svg
+              className="viewport-toolbar-fab-icon"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden
+            >
+              <path
+                d="M5 19L19 5"
+                stroke="currentColor"
+                strokeWidth="1.85"
+                strokeLinecap="round"
+              />
+              <circle cx="5" cy="19" r="2.25" fill="currentColor" />
+              <circle cx="19" cy="5" r="2.25" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className={`viewport-toolbar-fab-toggle${expanded ? " viewport-toolbar-fab-toggle--open" : ""}`}
+        aria-expanded={expanded}
+        title={expanded ? "收起 3D 视口工具" : "3D 视口工具"}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <svg
+          className="viewport-toolbar-fab-icon"
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden
+        >
+          <path
+            d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 export function Viewport3D() {
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const hasDoc = useEditorStore((s) => s.sceneGraphRoot !== null);
+  const measureToolActive = useEditorStore((s) => s.measureToolActive);
 
   return (
     <div className="viewport-wrap" style={{ flex: "1 1 auto", minHeight: 0 }}>
       {hasDoc ? (
-        <Canvas
-          camera={{ position: [12, 10, 14], fov: 50, near: 0.1, far: 500 }}
-          gl={{ antialias: true, alpha: false }}
-          onPointerMissed={() => clearSelection()}
-        >
-          <ViewportRig />
-          <SceneContent />
-        </Canvas>
+        <>
+          <Canvas
+            camera={{ position: [12, 10, 14], fov: 50, near: 0.1, far: 500 }}
+            gl={{ antialias: true, alpha: false }}
+            onPointerMissed={() => {
+              if (!measureToolActive) {
+                clearSelection();
+              }
+            }}
+          >
+            <ViewportRig />
+            <SceneContent />
+          </Canvas>
+          {measureToolActive ? (
+            <div className="viewport-measure-hint" role="status">
+              测距：左键放置点；中键拖动旋转；滚轮缩放；右键平移。第三点重新开始。Esc 退出。
+            </div>
+          ) : null}
+          <ViewportToolbarFab />
+        </>
       ) : (
         <div className="inspector-empty" style={{ padding: 24 }}>
           加载 JSON 后，此处显示 3D 预览（占位几何体）。

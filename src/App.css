@@ -43,6 +43,126 @@
   display: block;
 }
 
+/* 3D 视口右下角：可收起的圆形工具栏 */
+.viewport-toolbar-fab {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.viewport-toolbar-fab-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+  animation: viewport-toolbar-fab-in 0.16s ease-out;
+}
+
+@keyframes viewport-toolbar-fab-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.viewport-toolbar-fab-toggle,
+.viewport-toolbar-fab-tool {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--godot-border);
+  background: rgba(53, 53, 53, 0.94);
+  color: var(--godot-text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.42);
+  cursor: pointer;
+}
+
+.viewport-toolbar-fab-toggle:hover,
+.viewport-toolbar-fab-tool:hover {
+  border-color: var(--godot-accent);
+  color: #fff;
+  background: var(--godot-bg-panel-raised);
+}
+
+.viewport-toolbar-fab-toggle:active,
+.viewport-toolbar-fab-tool:active {
+  background: var(--godot-bg-input);
+}
+
+.viewport-toolbar-fab-toggle {
+  width: 48px;
+  height: 48px;
+}
+
+.viewport-toolbar-fab-toggle--open {
+  border-color: var(--godot-accent);
+  background: rgba(61, 90, 128, 0.35);
+}
+
+.viewport-toolbar-fab-tool {
+  width: 44px;
+  height: 44px;
+}
+
+.viewport-toolbar-fab-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.viewport-toolbar-fab-tool--active {
+  border-color: var(--godot-accent);
+  background: rgba(61, 90, 128, 0.42);
+  color: #fff;
+}
+
+.viewport-measure-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  z-index: 25;
+  max-width: min(420px, calc(100% - 24px));
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--godot-text);
+  background: rgba(45, 45, 45, 0.94);
+  border: 1px solid var(--godot-border);
+  border-radius: 3px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  text-align: center;
+}
+
+.viewport-measure-label {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: #e8f8e8;
+  background: rgba(22, 28, 22, 0.92);
+  border: 1px solid rgba(123, 237, 75, 0.45);
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
 .tree-panel-wrap {
   height: 100%;
   min-height: 0;
