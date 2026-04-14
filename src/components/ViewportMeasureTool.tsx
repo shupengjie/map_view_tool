@@ -10,10 +10,7 @@ import { Html, Line } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import { BufferAttribute, BufferGeometry, Raycaster, Vector2, Vector3 } from "three";
-
-function vec3FromTuple(t: Vec3): Vector3 {
-  return new Vector3(t[0], t[1], t[2]);
-}
+import type { Group } from "three";
 
 function midpoint(a: Vec3, b: Vec3): Vector3 {
   return new Vector3((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
@@ -30,6 +27,35 @@ const DISTANCE_FMT = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+
+/** Same idea as axis tick labels: scale with camera distance so on-screen size stays roughly constant. */
+const MEASURE_MARKER_DIST_REF = 40;
+const MEASURE_MARKER_BASE_RADIUS = 0.14;
+
+function MeasurePointMarker({ position, color }: { position: Vec3; color: string }) {
+  const groupRef = useRef<Group>(null);
+  const wp = useMemo(() => new Vector3(), []);
+
+  useFrame((state) => {
+    const g = groupRef.current;
+    if (!g) {
+      return;
+    }
+    g.getWorldPosition(wp);
+    const d = Math.max(state.camera.position.distanceTo(wp), 0.2);
+    const s = d / MEASURE_MARKER_DIST_REF;
+    g.scale.setScalar(s);
+  });
+
+  return (
+    <group ref={groupRef} position={position} renderOrder={1002}>
+      <mesh renderOrder={1002}>
+        <sphereGeometry args={[MEASURE_MARKER_BASE_RADIUS, 14, 14]} />
+        <meshBasicMaterial color={color} depthTest={false} />
+      </mesh>
+    </group>
+  );
+}
 
 function MeasurePreviewLine({ from, getTo }: { from: Vec3; getTo: () => Vector3 | null }) {
   const geomRef = useRef<BufferGeometry>(null);
@@ -136,18 +162,8 @@ function MeasureToolActiveInner() {
           renderOrder={1000}
         />
       ) : null}
-      {pointA ? (
-        <mesh position={vec3FromTuple(pointA)} renderOrder={1002}>
-          <sphereGeometry args={[0.14, 14, 14]} />
-          <meshBasicMaterial color="#00d4ff" depthTest={false} />
-        </mesh>
-      ) : null}
-      {pointB ? (
-        <mesh position={vec3FromTuple(pointB)} renderOrder={1002}>
-          <sphereGeometry args={[0.14, 14, 14]} />
-          <meshBasicMaterial color="#7bed4b" depthTest={false} />
-        </mesh>
-      ) : null}
+      {pointA ? <MeasurePointMarker position={pointA} color="#00d4ff" /> : null}
+      {pointB ? <MeasurePointMarker position={pointB} color="#7bed4b" /> : null}
       {pointA && pointB ? (
         <Html position={midpoint(pointA, pointB)} center style={{ pointerEvents: "none" }}>
           <div
