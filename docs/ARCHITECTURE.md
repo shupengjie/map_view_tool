@@ -48,10 +48,10 @@ flowchart TB
 | 层级       | 职责                                              | 主要位置                                                                    |
 | -------- | ----------------------------------------------- | ----------------------------------------------------------------------- |
 | **表现层**  | 顶栏「加载数据」菜单、场景树、已加载文件列表、3D 视口、属性/区域面板；Godot 风格主题 | `src/App.tsx`、`src/components/*.tsx`（含 `Toolbar`、`JsonMapDuplicateNotice`、`LayerDataDuplicateNotice`）、`src/styles/godot-theme.css` |
-| **状态层**  | 文档列表、TUM 轨迹、合并后的场景根、选中节点、隐藏集合、区域筛选、相机对焦请求、**距离测量开关与两端点**、加载错误、Json 地图 / Layer 重复加载提示等 | `src/store/useEditorStore.ts` |
+| **状态层**  | 文档列表、TUM 轨迹、合并后的场景根、选中节点、隐藏集合、区域筛选、相机对焦请求、**距离/角度测量开关与测量点状态**、加载错误、Json 地图 / Layer 重复加载提示等 | `src/store/useEditorStore.ts` |
 | **适配层**  | JSON → `SceneNode`：HD Map、Layer 导出、通用有界递归 | `src/adapters/jsonToScene.ts`、`mapJsonToScene.ts`、`layerDataToScene.ts` |
 | **场景模型** | `SceneNode` 类型、合并多文件、图遍历工具                      | `src/scene/types.ts`、`buildSceneTree.ts`、`graphUtils.ts`、`constants.ts` |
-| **渲染层**  | 将 `SceneNode` 映射为 Three.js 对象、拾取、选中高亮、相机同步、视口工具栏与测距      | `src/components/Viewport3D.tsx`、`ViewportMeasureTool.tsx`、`CameraFocusSync.tsx` |
+| **渲染层**  | 将 `SceneNode` 映射为 Three.js 对象、拾取、选中高亮、相机同步、视口工具栏与距离/角度测量      | `src/components/Viewport3D.tsx`、`ViewportMeasureTool.tsx`、`CameraFocusSync.tsx` |
 
 
 ---
@@ -76,10 +76,10 @@ flowchart TB
 | `src/utils/roadLinkColors.ts`    | `road_links` 等线条配色                                          |
 | `src/utils/measurePick.ts` | 测距用射线拾取：优先场景交点，否则 **y=0** 平面；跳过背景网格与地图坐标轴子树（`userData.nodeId`） |
 
-### 视口轨道控制与测距模块
+### 视口轨道控制与测量模块
 
 - **轨道**：`Viewport3D.tsx` 内 `OrbitControls` 的 `mouseButtons` 为左键与中键旋转、右键平移；**滚轮**为缩放（`enableZoom`）。
-- **测距**：右下角悬浮 `ViewportToolbarFab` 进入测距；逻辑与绘制在 `ViewportMeasureTool.tsx`，拾取在 `measurePick.ts`；store 字段见 `useEditorStore` 中 `measureToolActive` / `measurePointA` / `measurePointB`。
+- **测量**：右下角悬浮 `ViewportToolbarFab` 可切换距离测量与角度测量（互斥）；逻辑与绘制在 `ViewportMeasureTool.tsx`，拾取在 `measurePick.ts`；store 字段见 `useEditorStore` 中 `measureDistanceToolActive`、`measureDistancePointA/B`、`measureAngleToolActive`、`measureAnglePointA/B/C`。
 
 ---
 
@@ -89,7 +89,7 @@ flowchart TB
 2. **合并场景**：`buildSceneGraphRoot` 为每个 JSON 文档生成 `type: "json"` 包装节点，并可选追加 `轨迹` 分组（TUM 折线）。
 3. **UI 与画布**：`sceneGraphRoot` 驱动场景树与 `Viewport3D`；选中 id 与 Three 对象 `userData.nodeId` 一致，便于射线拾取与属性面板同步。
 4. **场景树选中**：若需相机对准该节点包围盒，通过 `cameraFocusRequest` + `CameraFocusSync` 更新轨道控制器目标。
-5. **距离测量**：`measureToolActive` / `measurePointA` / `measurePointB` 存于 store；`ViewportMeasureTool` 在画布内绘制线段与标记，在 `canvas` 上使用捕获阶段 `pointerdown` 取点并调用 `pickMeasurePointWorld`；测距左键不与「单击空白清选中」冲突（`onPointerMissed` 在测距模式下不调用 `clearSelection`）。背景网格与地图坐标轴根组带有 `userData.nodeId`（`SCENE_BACKGROUND_GRID_NODE_ID` / `MAP_FRAME_AXES_NODE_ID`），拾取时跳过。
+5. **距离/角度测量**：测量状态存于 store（距离：`measureDistanceToolActive` / `measureDistancePointA/B`；角度：`measureAngleToolActive` / `measureAnglePointA/B/C`）；`ViewportMeasureTool` 在画布内绘制线段、标记与标签，在 `canvas` 上使用捕获阶段 `pointerdown` 取点并调用 `pickMeasurePointWorld`；测量左键不与「单击空白清选中」冲突（`onPointerMissed` 在任一测量模式下不调用 `clearSelection`）。背景网格与地图坐标轴根组带有 `userData.nodeId`（`SCENE_BACKGROUND_GRID_NODE_ID` / `MAP_FRAME_AXES_NODE_ID`），拾取时跳过。
 
 ---
 
