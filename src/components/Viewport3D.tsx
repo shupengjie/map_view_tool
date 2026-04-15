@@ -159,6 +159,13 @@ function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPu
 /** World-space radius (m) for each vertex sphere in `road_links` point mode (visible only). */
 const ROAD_LINK_POINT_SPHERE_RADIUS = 0.12;
 
+/**
+ * Width/height segments for small viewport spheres (vertices, instanced clouds, pick colliders).
+ * Keeps triangle count low; raycasting still uses the same mesh bounds.
+ */
+const VIEWPORT_SMALL_SPHERE_W_SEGS = 6;
+const VIEWPORT_SMALL_SPHERE_H_SEGS = 6;
+
 /** Layer export point clouds (`all_boundary_pts` / `all_lane_line_pts`): instanced sphere radius. */
 const LAYER_DATA_POINT_SPHERE_RADIUS = 0.11;
 
@@ -310,7 +317,7 @@ function RoadLinkPointHitCollider({
     <group position={position}>
       {isSelected ? (
         <mesh renderOrder={998}>
-          <sphereGeometry args={[radius * 1.35, 14, 14]} />
+          <sphereGeometry args={[radius * 1.35, VIEWPORT_SMALL_SPHERE_W_SEGS, VIEWPORT_SMALL_SPHERE_H_SEGS]} />
           <meshBasicMaterial
             color={selectedEdgeColor}
             transparent
@@ -342,7 +349,7 @@ function RoadLinkPointHitCollider({
           }
         }}
       >
-        <sphereGeometry args={[radius, 16, 16]} />
+        <sphereGeometry args={[radius, VIEWPORT_SMALL_SPHERE_W_SEGS, VIEWPORT_SMALL_SPHERE_H_SEGS]} />
         <meshBasicMaterial transparent opacity={0.001} depthWrite={false} depthTest={false} />
       </mesh>
     </group>
@@ -383,10 +390,13 @@ function RoadLinkVertexPoints({
   points: pts,
   color,
   nodeId,
+  selectedPulse,
 }: {
   points: readonly Vec3[];
   color: string;
   nodeId: string;
+  /** When set, draws the same pulsing shell as the ref-trajectory point collider (selection only). */
+  selectedPulse?: number;
 }) {
   const groupRef = useRef<Group>(null);
   useLayoutEffect(() => {
@@ -396,7 +406,7 @@ function RoadLinkVertexPoints({
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [pts, color, nodeId]);
+  }, [pts, color, nodeId, selectedPulse]);
 
   if (pts.length === 0) {
     return null;
@@ -404,12 +414,32 @@ function RoadLinkVertexPoints({
 
   return (
     <group ref={groupRef}>
-      {pts.map((p, i) => (
-        <mesh key={i} position={p} userData={{ nodeId }}>
-          <sphereGeometry args={[ROAD_LINK_POINT_SPHERE_RADIUS, 12, 12]} />
-          <meshStandardMaterial color={color} metalness={0.12} roughness={0.45} />
-        </mesh>
-      ))}
+      {pts.map((p, i) =>
+        selectedPulse !== undefined ? (
+          <group key={i} position={p}>
+            <mesh renderOrder={998}>
+              <sphereGeometry
+                args={[ROAD_LINK_POINT_SPHERE_RADIUS * 1.35, VIEWPORT_SMALL_SPHERE_W_SEGS, VIEWPORT_SMALL_SPHERE_H_SEGS]}
+              />
+              <meshBasicMaterial
+                color={selectedPulse > 0.5 ? "#ffea00" : "#ff3b9a"}
+                transparent
+                opacity={0.78 + selectedPulse * 0.22}
+                depthTest={false}
+              />
+            </mesh>
+            <mesh userData={{ nodeId }}>
+              <sphereGeometry args={[ROAD_LINK_POINT_SPHERE_RADIUS, VIEWPORT_SMALL_SPHERE_W_SEGS, VIEWPORT_SMALL_SPHERE_H_SEGS]} />
+              <meshStandardMaterial color={color} metalness={0.12} roughness={0.45} />
+            </mesh>
+          </group>
+        ) : (
+          <mesh key={i} position={p} userData={{ nodeId }}>
+            <sphereGeometry args={[ROAD_LINK_POINT_SPHERE_RADIUS, VIEWPORT_SMALL_SPHERE_W_SEGS, VIEWPORT_SMALL_SPHERE_H_SEGS]} />
+            <meshStandardMaterial color={color} metalness={0.12} roughness={0.45} />
+          </mesh>
+        ),
+      )}
     </group>
   );
 }
@@ -426,7 +456,10 @@ function LayerDataPointCloudInstanced({
 }) {
   const meshRef = useRef<InstancedMesh>(null);
   const dummy = useMemo(() => new Object3D(), []);
-  const geometry = useMemo(() => new SphereGeometry(LAYER_DATA_POINT_SPHERE_RADIUS, 8, 8), []);
+  const geometry = useMemo(
+    () => new SphereGeometry(LAYER_DATA_POINT_SPHERE_RADIUS, VIEWPORT_SMALL_SPHERE_W_SEGS, VIEWPORT_SMALL_SPHERE_H_SEGS),
+    [],
+  );
   const material = useMemo(
     () =>
       new MeshStandardMaterial({
@@ -484,24 +517,42 @@ function LayerDataPointCloudInstanced({
   );
 }
 
+/** Left/right boundary samples are independent points (small spheres), never connected into polylines. */
 function RoadBoundaryPointsVisualOnly({
   leftPoints,
   rightPoints,
   roadLinkColor,
   nodeId,
   isSelected,
+  selectedPulse,
 }: {
   leftPoints: readonly Vec3[];
   rightPoints: readonly Vec3[];
   roadLinkColor: string;
   nodeId: string;
   isSelected: boolean;
+  selectedPulse: number;
 }) {
-  const pointColor = isSelected ? SELECT_BASE_COLOR : roadLinkColor;
+  const baseColor = isSelected ? SELECT_BASE_COLOR : roadLinkColor;
+  const vertexPulse = isSelected ? selectedPulse : undefined;
   return (
     <>
-      {leftPoints.length >= 1 ? <RoadLinkVertexPoints points={leftPoints} color={pointColor} nodeId={nodeId} /> : null}
-      {rightPoints.length >= 1 ? <RoadLinkVertexPoints points={rightPoints} color={pointColor} nodeId={nodeId} /> : null}
+      {leftPoints.length >= 1 ? (
+        <RoadLinkVertexPoints
+          points={leftPoints}
+          color={baseColor}
+          nodeId={nodeId}
+          selectedPulse={vertexPulse}
+        />
+      ) : null}
+      {rightPoints.length >= 1 ? (
+        <RoadLinkVertexPoints
+          points={rightPoints}
+          color={baseColor}
+          nodeId={nodeId}
+          selectedPulse={vertexPulse}
+        />
+      ) : null}
     </>
   );
 }
@@ -549,6 +600,7 @@ function RoadLinkBoundaryLeaf({
         roadLinkColor={roadLinkColor}
         nodeId={nodeId}
         isSelected={isSelected}
+        selectedPulse={selectedPulse}
       />
     </>
   );
@@ -1270,7 +1322,7 @@ function SceneNodeViewContentMain({ node, isSelected, selectedPulse, ancestorHid
         isLayerDataCenterNode ? (
           <>
             <mesh userData={{ nodeId: node.id }} onClick={onMeshClick}>
-              <sphereGeometry args={[0.14, 14, 14]} />
+              <sphereGeometry args={[0.14, VIEWPORT_SMALL_SPHERE_W_SEGS, VIEWPORT_SMALL_SPHERE_H_SEGS]} />
               <meshStandardMaterial
                 color={isSelected ? SELECT_BASE_COLOR : "#c9b87a"}
                 metalness={0.1}
@@ -1451,8 +1503,10 @@ function ViewportRig() {
 
 function ViewportToolbarFab() {
   const [expanded, setExpanded] = useState(false);
-  const measureToolActive = useEditorStore((s) => s.measureToolActive);
-  const setMeasureToolActive = useEditorStore((s) => s.setMeasureToolActive);
+  const measureDistanceToolActive = useEditorStore((s) => s.measureDistanceToolActive);
+  const measureAngleToolActive = useEditorStore((s) => s.measureAngleToolActive);
+  const setMeasureDistanceToolActive = useEditorStore((s) => s.setMeasureDistanceToolActive);
+  const setMeasureAngleToolActive = useEditorStore((s) => s.setMeasureAngleToolActive);
 
   return (
     <div className="viewport-toolbar-fab" role="toolbar" aria-label="3D 视口工具">
@@ -1460,15 +1514,15 @@ function ViewportToolbarFab() {
         <div className="viewport-toolbar-fab-tools">
           <button
             type="button"
-            className={`viewport-toolbar-fab-tool${measureToolActive ? " viewport-toolbar-fab-tool--active" : ""}`}
+            className={`viewport-toolbar-fab-tool${measureDistanceToolActive ? " viewport-toolbar-fab-tool--active" : ""}`}
             title={
-              measureToolActive
+              measureDistanceToolActive
                 ? "关闭距离测量（Esc 也可退出）"
                 : "距离测量：左键选两点；中键拖动旋转；滚轮缩放；右键平移"
             }
             aria-label="距离测量"
-            aria-pressed={measureToolActive}
-            onClick={() => setMeasureToolActive(!measureToolActive)}
+            aria-pressed={measureDistanceToolActive}
+            onClick={() => setMeasureDistanceToolActive(!measureDistanceToolActive)}
           >
             <svg
               className="viewport-toolbar-fab-icon"
@@ -1487,6 +1541,32 @@ function ViewportToolbarFab() {
               />
               <circle cx="5" cy="19" r="2.25" fill="currentColor" />
               <circle cx="19" cy="5" r="2.25" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={`viewport-toolbar-fab-tool${measureAngleToolActive ? " viewport-toolbar-fab-tool--active" : ""}`}
+            title={
+              measureAngleToolActive
+                ? "关闭角度测量（Esc 也可退出）"
+                : "角度测量：左键选三点，显示夹角（0~180°）；中键拖动旋转；滚轮缩放；右键平移"
+            }
+            aria-label="角度测量"
+            aria-pressed={measureAngleToolActive}
+            onClick={() => setMeasureAngleToolActive(!measureAngleToolActive)}
+          >
+            <svg
+              className="viewport-toolbar-fab-icon"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden
+            >
+              <path d="M5 18L12 6L19 18" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+              <path d="M8.8 14.5A4 4 0 0112 12.9a4 4 0 013.2 1.6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              <circle cx="12" cy="6" r="1.7" fill="currentColor" />
             </svg>
           </button>
         </div>
@@ -1523,7 +1603,9 @@ function ViewportToolbarFab() {
 export function Viewport3D() {
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const hasDoc = useEditorStore((s) => s.sceneGraphRoot !== null);
-  const measureToolActive = useEditorStore((s) => s.measureToolActive);
+  const measureDistanceToolActive = useEditorStore((s) => s.measureDistanceToolActive);
+  const measureAngleToolActive = useEditorStore((s) => s.measureAngleToolActive);
+  const measureAnyToolActive = measureDistanceToolActive || measureAngleToolActive;
 
   return (
     <div className="viewport-wrap" style={{ flex: "1 1 auto", minHeight: 0 }}>
@@ -1533,7 +1615,7 @@ export function Viewport3D() {
             camera={{ position: [12, 10, 14], fov: 50, near: 0.1, far: 500 }}
             gl={{ antialias: true, alpha: false }}
             onPointerMissed={() => {
-              if (!measureToolActive) {
+              if (!measureAnyToolActive) {
                 clearSelection();
               }
             }}
@@ -1541,9 +1623,14 @@ export function Viewport3D() {
             <ViewportRig />
             <SceneContent />
           </Canvas>
-          {measureToolActive ? (
+          {measureDistanceToolActive ? (
             <div className="viewport-measure-hint" role="status">
               测距：左键放置点；中键拖动旋转；滚轮缩放；右键平移。第三点重新开始。Esc 退出。
+            </div>
+          ) : null}
+          {measureAngleToolActive ? (
+            <div className="viewport-measure-hint" role="status">
+              测角：左键放置三点（第二点为顶点）；中键拖动旋转；滚轮缩放；右键平移。第四点重新开始。Esc 退出。
             </div>
           ) : null}
           <ViewportToolbarFab />

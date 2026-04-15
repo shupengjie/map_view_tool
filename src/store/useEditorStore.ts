@@ -127,11 +127,19 @@ export interface EditorState {
    */
   readonly roadLinksPointRenderMode: ReadonlyMap<string, boolean>;
   /** When true, left-click places distance-measure points; orbit rotate uses middle mouse only (see viewport hint). */
-  readonly measureToolActive: boolean;
-  /** First scene-space point (m), or null until placed. */
-  readonly measurePointA: Vec3 | null;
-  /** Second scene-space point (m), or null until placed. */
-  readonly measurePointB: Vec3 | null;
+  readonly measureDistanceToolActive: boolean;
+  /** Distance tool first scene-space point (m), or null until placed. */
+  readonly measureDistancePointA: Vec3 | null;
+  /** Distance tool second scene-space point (m), or null until placed. */
+  readonly measureDistancePointB: Vec3 | null;
+  /** When true, left-click places angle-measure points. Mutually exclusive with distance tool. */
+  readonly measureAngleToolActive: boolean;
+  /** Angle tool first scene-space point (m), or null until placed. */
+  readonly measureAnglePointA: Vec3 | null;
+  /** Angle tool vertex scene-space point (m), or null until placed. */
+  readonly measureAnglePointB: Vec3 | null;
+  /** Angle tool third scene-space point (m), or null until placed. */
+  readonly measureAnglePointC: Vec3 | null;
 
   /** JSON map files: `.json` extension and basename contains `json_map` (chars may appear between `json_map` and `.json`). */
   loadLocalJsonMapFiles: (files: FileList | File[]) => Promise<void>;
@@ -155,13 +163,20 @@ export interface EditorState {
   toggleRegionFilter: (regionId: number) => void;
   /** Toggle point-vs-line rendering for all geometry under a `road_links` layer group. */
   setRoadLinksPointRenderMode: (roadLinksLayerGroupId: string, pointMode: boolean) => void;
-  /** Enables or disables 3D viewport distance tool; disabling clears both measure points. */
-  setMeasureToolActive: (active: boolean) => void;
+  /** Enables or disables 3D viewport distance tool; enabling it closes angle tool. */
+  setMeasureDistanceToolActive: (active: boolean) => void;
+  /** Enables or disables 3D viewport angle tool; enabling it closes distance tool. */
+  setMeasureAngleToolActive: (active: boolean) => void;
   /**
-   * While `measureToolActive`, records a scene point: first click sets A, second sets B;
+   * While `measureDistanceToolActive`, records a scene point: first click sets A, second sets B;
    * a third click starts a new segment (A only, B cleared).
    */
-  addMeasurePoint: (p: Vec3) => void;
+  addMeasureDistancePoint: (p: Vec3) => void;
+  /**
+   * While `measureAngleToolActive`, records scene points: first click sets A, second sets vertex B, third sets C;
+   * a fourth click starts a new angle (A only, B/C cleared).
+   */
+  addMeasureAnglePoint: (p: Vec3) => void;
 }
 
 function newDocId(): string {
@@ -390,9 +405,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeRegionFilterId: null,
   cameraFocusRequest: null,
   roadLinksPointRenderMode: new Map<string, boolean>(),
-  measureToolActive: false,
-  measurePointA: null,
-  measurePointB: null,
+  measureDistanceToolActive: false,
+  measureDistancePointA: null,
+  measureDistancePointB: null,
+  measureAngleToolActive: false,
+  measureAnglePointA: null,
+  measureAnglePointB: null,
+  measureAnglePointC: null,
 
   loadLocalJsonMapFiles: async (files) => {
     await loadLocalJsonDocumentsByKind(files, "json_map", get, set);
@@ -638,26 +657,60 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  setMeasureToolActive: (active) => {
+  setMeasureDistanceToolActive: (active) => {
     set({
-      measureToolActive: active,
-      measurePointA: null,
-      measurePointB: null,
+      measureDistanceToolActive: active,
+      measureDistancePointA: null,
+      measureDistancePointB: null,
+      measureAngleToolActive: active ? false : get().measureAngleToolActive,
+      measureAnglePointA: active ? null : get().measureAnglePointA,
+      measureAnglePointB: active ? null : get().measureAnglePointB,
+      measureAnglePointC: active ? null : get().measureAnglePointC,
     });
   },
 
-  addMeasurePoint: (p) => {
+  setMeasureAngleToolActive: (active) => {
+    set({
+      measureAngleToolActive: active,
+      measureAnglePointA: null,
+      measureAnglePointB: null,
+      measureAnglePointC: null,
+      measureDistanceToolActive: active ? false : get().measureDistanceToolActive,
+      measureDistancePointA: active ? null : get().measureDistancePointA,
+      measureDistancePointB: active ? null : get().measureDistancePointB,
+    });
+  },
+
+  addMeasureDistancePoint: (p) => {
     set((s) => {
-      if (!s.measureToolActive) {
+      if (!s.measureDistanceToolActive) {
         return s;
       }
-      if (!s.measurePointA) {
-        return { measurePointA: p, measurePointB: null };
+      if (!s.measureDistancePointA) {
+        return { measureDistancePointA: p, measureDistancePointB: null };
       }
-      if (!s.measurePointB) {
-        return { measurePointB: p };
+      if (!s.measureDistancePointB) {
+        return { measureDistancePointB: p };
       }
-      return { measurePointA: p, measurePointB: null };
+      return { measureDistancePointA: p, measureDistancePointB: null };
+    });
+  },
+
+  addMeasureAnglePoint: (p) => {
+    set((s) => {
+      if (!s.measureAngleToolActive) {
+        return s;
+      }
+      if (!s.measureAnglePointA) {
+        return { measureAnglePointA: p, measureAnglePointB: null, measureAnglePointC: null };
+      }
+      if (!s.measureAnglePointB) {
+        return { measureAnglePointB: p };
+      }
+      if (!s.measureAnglePointC) {
+        return { measureAnglePointC: p };
+      }
+      return { measureAnglePointA: p, measureAnglePointB: null, measureAnglePointC: null };
     });
   },
 }));

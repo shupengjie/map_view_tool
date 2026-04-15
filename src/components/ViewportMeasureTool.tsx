@@ -1,6 +1,8 @@
 /**
- * 3D viewport distance tool: two left-clicks define segment; empty hits fall back to y=0 plane.
- * While active, left-click is captured for placing points; middle-drag rotates, wheel zooms, right-drag pans (OrbitControls).
+ * 3D viewport measure tools:
+ * - distance: two left-clicks define segment
+ * - angle: three left-clicks define two rays (A-B and C-B), angle range [0, 180]
+ * Empty hits fall back to y=0 plane. While active, left-click is captured for placing points.
  */
 
 import { useEditorStore } from "@/store/useEditorStore";
@@ -9,7 +11,7 @@ import { pickMeasurePointWorld } from "@/utils/measurePick";
 import { Html, Line } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
-import { BufferAttribute, BufferGeometry, Raycaster, Vector2, Vector3 } from "three";
+import { BufferAttribute, BufferGeometry, MathUtils, Raycaster, Vector2, Vector3 } from "three";
 import type { Group } from "three";
 
 function midpoint(a: Vec3, b: Vec3): Vector3 {
@@ -23,7 +25,28 @@ function distanceMeters(a: Vec3, b: Vec3): number {
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+function angleDegrees(a: Vec3, b: Vec3, c: Vec3): number {
+  const bax = a[0] - b[0];
+  const bay = a[1] - b[1];
+  const baz = a[2] - b[2];
+  const bcx = c[0] - b[0];
+  const bcy = c[1] - b[1];
+  const bcz = c[2] - b[2];
+  const baLen = Math.sqrt(bax * bax + bay * bay + baz * baz);
+  const bcLen = Math.sqrt(bcx * bcx + bcy * bcy + bcz * bcz);
+  if (baLen < 1e-6 || bcLen < 1e-6) {
+    return 0;
+  }
+  const dot = bax * bcx + bay * bcy + baz * bcz;
+  const cos = MathUtils.clamp(dot / (baLen * bcLen), -1, 1);
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
 const DISTANCE_FMT = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const ANGLE_FMT = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
@@ -31,6 +54,8 @@ const DISTANCE_FMT = new Intl.NumberFormat(undefined, {
 /** Same idea as axis tick labels: scale with camera distance so on-screen size stays roughly constant. */
 const MEASURE_MARKER_DIST_REF = 40;
 const MEASURE_MARKER_BASE_RADIUS = 0.14;
+/** Match Viewport3D low-poly small spheres to limit triangle count. */
+const MEASURE_MARKER_SPHERE_SEGS = 6;
 
 function MeasurePointMarker({ position, color }: { position: Vec3; color: string }) {
   const groupRef = useRef<Group>(null);
@@ -48,9 +73,9 @@ function MeasurePointMarker({ position, color }: { position: Vec3; color: string
   });
 
   return (
-    <group ref={groupRef} position={position} renderOrder={1002}>
+    <group ref={groupRef} position={position} renderOrder={1002} userData={{ viewportMeasureOverlay: true }}>
       <mesh renderOrder={1002}>
-        <sphereGeometry args={[MEASURE_MARKER_BASE_RADIUS, 14, 14]} />
+        <sphereGeometry args={[MEASURE_MARKER_BASE_RADIUS, MEASURE_MARKER_SPHERE_SEGS, MEASURE_MARKER_SPHERE_SEGS]} />
         <meshBasicMaterial color={color} depthTest={false} />
       </mesh>
     </group>
@@ -87,7 +112,7 @@ function MeasurePreviewLine({ from, getTo }: { from: Vec3; getTo: () => Vector3 
   });
 
   return (
-    <lineSegments frustumCulled={false} renderOrder={1001}>
+    <lineSegments frustumCulled={false} renderOrder={1001} userData={{ viewportMeasureOverlay: true }}>
       <bufferGeometry ref={geomRef}>
         <bufferAttribute attach="attributes-position" count={2} array={arr} itemSize={3} />
       </bufferGeometry>
@@ -96,24 +121,9 @@ function MeasurePreviewLine({ from, getTo }: { from: Vec3; getTo: () => Vector3 
   );
 }
 
-function MeasureToolActiveInner() {
-  const pointA = useEditorStore((s) => s.measurePointA);
-  const pointB = useEditorStore((s) => s.measurePointB);
-  const addMeasurePoint = useEditorStore((s) => s.addMeasurePoint);
-  const setMeasureToolActive = useEditorStore((s) => s.setMeasureToolActive);
-
+function useMeasurePointerCapture(onPicked: (p: Vec3) => void) {
   const { camera, gl, scene, pointer } = useThree();
   const raycaster = useMemo(() => new Raycaster(), []);
-  const previewRef = useRef<Vector3 | null>(null);
-
-  useFrame(() => {
-    if (!pointA || pointB) {
-      previewRef.current = null;
-      return;
-    }
-    raycaster.setFromCamera(pointer, camera);
-    previewRef.current = pickMeasurePointWorld(raycaster, scene);
-  });
 
   useEffect(() => {
     const el = gl.domElement;
@@ -129,14 +139,34 @@ function MeasureToolActiveInner() {
       if (!p) {
         return;
       }
-      addMeasurePoint([p.x, p.y, p.z]);
+      onPicked([p.x, p.y, p.z]);
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
     };
     el.addEventListener("pointerdown", onPointerDown, true);
     return () => el.removeEventListener("pointerdown", onPointerDown, true);
-  }, [gl, camera, scene, raycaster, addMeasurePoint]);
+  }, [gl, camera, scene, raycaster, onPicked]);
+
+  return { camera, scene, pointer, raycaster };
+}
+
+function DistanceMeasureToolActiveInner() {
+  const pointA = useEditorStore((s) => s.measureDistancePointA);
+  const pointB = useEditorStore((s) => s.measureDistancePointB);
+  const addMeasurePoint = useEditorStore((s) => s.addMeasureDistancePoint);
+  const setMeasureToolActive = useEditorStore((s) => s.setMeasureDistanceToolActive);
+  const previewRef = useRef<Vector3 | null>(null);
+  const { camera, scene, pointer, raycaster } = useMeasurePointerCapture(addMeasurePoint);
+
+  useFrame(() => {
+    if (!pointA || pointB) {
+      previewRef.current = null;
+      return;
+    }
+    raycaster.setFromCamera(pointer, camera);
+    previewRef.current = pickMeasurePointWorld(raycaster, scene);
+  });
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -154,13 +184,15 @@ function MeasureToolActiveInner() {
     <group>
       {pointA && !pointB ? <MeasurePreviewLine from={pointA} getTo={getPreview} /> : null}
       {pointA && pointB ? (
-        <Line
-          points={[pointA, pointB]}
-          color="#7bed4b"
-          lineWidth={2.5}
-          depthTest={false}
-          renderOrder={1000}
-        />
+        <group userData={{ viewportMeasureOverlay: true }}>
+          <Line
+            points={[pointA, pointB]}
+            color="#7bed4b"
+            lineWidth={2.5}
+            depthTest={false}
+            renderOrder={1000}
+          />
+        </group>
       ) : null}
       {pointA ? <MeasurePointMarker position={pointA} color="#00d4ff" /> : null}
       {pointB ? <MeasurePointMarker position={pointB} color="#7bed4b" /> : null}
@@ -179,10 +211,90 @@ function MeasureToolActiveInner() {
   );
 }
 
+function AngleMeasureToolActiveInner() {
+  const pointA = useEditorStore((s) => s.measureAnglePointA);
+  const pointB = useEditorStore((s) => s.measureAnglePointB);
+  const pointC = useEditorStore((s) => s.measureAnglePointC);
+  const addMeasurePoint = useEditorStore((s) => s.addMeasureAnglePoint);
+  const setMeasureToolActive = useEditorStore((s) => s.setMeasureAngleToolActive);
+  const previewRef = useRef<Vector3 | null>(null);
+  const { camera, scene, pointer, raycaster } = useMeasurePointerCapture(addMeasurePoint);
+
+  useFrame(() => {
+    if (!pointA || pointC) {
+      previewRef.current = null;
+      return;
+    }
+    raycaster.setFromCamera(pointer, camera);
+    previewRef.current = pickMeasurePointWorld(raycaster, scene);
+  });
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMeasureToolActive(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [setMeasureToolActive]);
+
+  const getPreview = () => previewRef.current;
+
+  const angleLabel = pointA && pointB && pointC ? `${ANGLE_FMT.format(angleDegrees(pointA, pointB, pointC))}\u00B0` : null;
+
+  return (
+    <group>
+      {pointA && !pointB ? <MeasurePreviewLine from={pointA} getTo={getPreview} /> : null}
+      {pointA && pointB ? (
+        <group userData={{ viewportMeasureOverlay: true }}>
+          <Line
+            points={[pointA, pointB]}
+            color="#7bed4b"
+            lineWidth={2.5}
+            depthTest={false}
+            renderOrder={1000}
+          />
+        </group>
+      ) : null}
+      {pointB && !pointC ? <MeasurePreviewLine from={pointB} getTo={getPreview} /> : null}
+      {pointB && pointC ? (
+        <group userData={{ viewportMeasureOverlay: true }}>
+          <Line
+            points={[pointB, pointC]}
+            color="#f39c12"
+            lineWidth={2.5}
+            depthTest={false}
+            renderOrder={1000}
+          />
+        </group>
+      ) : null}
+      {pointA ? <MeasurePointMarker position={pointA} color="#00d4ff" /> : null}
+      {pointB ? <MeasurePointMarker position={pointB} color="#f5d547" /> : null}
+      {pointC ? <MeasurePointMarker position={pointC} color="#7bed4b" /> : null}
+      {pointB && angleLabel ? (
+        <Html position={pointB} center style={{ pointerEvents: "none" }}>
+          <div
+            className="viewport-measure-label"
+            aria-live="polite"
+            role="status"
+          >
+            {angleLabel}
+          </div>
+        </Html>
+      ) : null}
+    </group>
+  );
+}
+
 export function MeasureToolScene() {
-  const measureToolActive = useEditorStore((s) => s.measureToolActive);
-  if (!measureToolActive) {
-    return null;
+  const measureDistanceToolActive = useEditorStore((s) => s.measureDistanceToolActive);
+  const measureAngleToolActive = useEditorStore((s) => s.measureAngleToolActive);
+  if (measureDistanceToolActive) {
+    return <DistanceMeasureToolActiveInner />;
   }
-  return <MeasureToolActiveInner />;
+  if (measureAngleToolActive) {
+    return <AngleMeasureToolActiveInner />;
+  }
+  return null;
 }
