@@ -6,7 +6,11 @@ import logoUrl from "@/icons/logo.png";
 import { useEffect, useRef, useState } from "react";
 import { useEditorStore } from "@/store/useEditorStore";
 
-export function Toolbar() {
+export function Toolbar({
+  onBackHome,
+}: {
+  onBackHome?: () => void;
+}) {
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const layerInputRef = useRef<HTMLInputElement>(null);
   const tumInputRef = useRef<HTMLInputElement>(null);
@@ -48,6 +52,14 @@ export function Toolbar() {
         <span className="toolbar-title">JSON Map View</span>
       </div>
       <div className="toolbar-actions">
+        {loadError ? (
+          <span className="toolbar-error" role="alert">
+            {loadError}
+            <button type="button" className="toolbar-error-dismiss" onClick={clearLoadError} aria-label="关闭提示">
+              ×
+            </button>
+          </span>
+        ) : null}
         <div className="toolbar-load-wrap" ref={menuWrapRef}>
           <button
             type="button"
@@ -99,6 +111,16 @@ export function Toolbar() {
             </div>
           ) : null}
         </div>
+        {onBackHome ? (
+          <button
+            type="button"
+            className="godot-btn toolbar-back-home-btn"
+            onClick={onBackHome}
+            title="所有数据都会被清除"
+          >
+            返回主页
+          </button>
+        ) : null}
         <input
           ref={jsonInputRef}
           type="file"
@@ -145,14 +167,6 @@ export function Toolbar() {
           }}
         />
       </div>
-      {loadError ? (
-        <span className="toolbar-error" role="alert">
-          {loadError}
-          <button type="button" className="toolbar-error-dismiss" onClick={clearLoadError} aria-label="关闭提示">
-            ×
-          </button>
-        </span>
-      ) : null}
     </header>
   );
 }

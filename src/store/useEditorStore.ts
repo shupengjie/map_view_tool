@@ -158,6 +158,8 @@ export interface EditorState {
   clearCameraFocusRequest: () => void;
   clearSelection: () => void;
   clearLoadError: () => void;
+  /** Clear all loaded data and transient UI state when leaving Json Map View. */
+  resetWorkspace: () => void;
   dismissJsonMapDuplicateNotice: () => void;
   dismissLayerDataDuplicateNotice: () => void;
   toggleRegionFilter: (regionId: number) => void;
@@ -629,6 +631,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   clearLoadError: () => {
     set({ loadError: null });
+  },
+
+  resetWorkspace: () => {
+    set({
+      documents: [],
+      tumTrajectories: [],
+      sceneGraphRoot: null,
+      activeDocumentId: null,
+      selectedNodeId: null,
+      loadError: null,
+      jsonMapDuplicateNoticeOpen: false,
+      layerDataDuplicateNoticeOpen: false,
+      hiddenNodeIds: new Set<string>([MAP_FRAME_AXES_NODE_ID]),
+      activeRegionFilterId: null,
+      cameraFocusRequest: null,
+      roadLinksPointRenderMode: new Map<string, boolean>(),
+      measureDistanceToolActive: false,
+      measureDistancePointA: null,
+      measureDistancePointB: null,
+      measureAngleToolActive: false,
+      measureAnglePointA: null,
+      measureAnglePointB: null,
+      measureAnglePointC: null,
+    });
   },
 
   dismissJsonMapDuplicateNotice: () => {
