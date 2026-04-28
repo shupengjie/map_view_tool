@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-**JSON Map View**（npm 包名 `json-map-view`）是一个在浏览器中运行的纯前端单页应用（SPA）。用户通过本地文件选择加载 **JSON 地图**（`json_map` 命名规则）、**Layer 导出 JSON**（`*layer_data.json`）与 **TUM 轨迹文本**，应用将数据解析为统一的内部**场景图**（`SceneNode` 树），再用 **React Three Fiber** 在 3D 视口中绘制。
+**JSON Map View**（npm 包名 `json-map-view`）是一个在浏览器中运行的纯前端单页应用（SPA）。用户通过本地文件选择加载 **JSON 地图**（`json_map` 命名规则）、**Layer 导出 JSON**（`*layer_data.json`）与 **TUM 轨迹文本**，应用将数据解析为统一的内部**场景图**（`SceneNode` 树），再用 **React Three Fiber** 在 3D 视口中绘制。项目同时提供独立的 **TUM EVO** 评估页面，用于对真值/测试轨迹进行文档化分析与 APE 统计。
 
 - **无后端**：数据仅通过 `File` API 读入并在客户端 `JSON.parse`，不上传服务器。
 - **典型用途**：泊车 / HD Map 类 JSON 的结构化可视化、与 TUM 轨迹对齐查看、属性检查与区域筛选。
@@ -47,8 +47,8 @@ flowchart TB
 
 | 层级       | 职责                                              | 主要位置                                                                    |
 | -------- | ----------------------------------------------- | ----------------------------------------------------------------------- |
-| **表现层**  | 顶栏「加载数据」菜单、场景树、已加载文件列表、3D 视口、属性/区域面板；Godot 风格主题 | `src/App.tsx`、`src/components/*.tsx`（含 `Toolbar`、`JsonMapDuplicateNotice`、`LayerDataDuplicateNotice`）、`src/styles/godot-theme.css` |
-| **状态层**  | 文档列表、TUM 轨迹、合并后的场景根、选中节点、隐藏集合、区域筛选、相机对焦请求、**距离/角度测量开关与测量点状态**、加载错误、Json 地图 / Layer 重复加载提示等 | `src/store/useEditorStore.ts` |
+| **表现层**  | 顶栏「加载数据」菜单、场景树、已加载文件列表、3D 视口、属性/区域面板，以及 TUM EVO 文档评估页；Godot 风格主题 | `src/App.tsx`、`src/components/*.tsx`（含 `Toolbar`、`TumEvoPage`、`TumEvoTrajectoryPresentation`、`InteractiveTimeSeriesChart`、`JsonMapDuplicateNotice`、`LayerDataDuplicateNotice`）、`src/styles/godot-theme.css` |
+| **状态层**  | 文档列表、TUM 轨迹、合并后的场景根、选中节点、隐藏集合、区域筛选、相机对焦请求、**距离/角度测量开关与测量点状态**、加载错误、Json 地图 / Layer 重复加载提示等；TUM EVO 页内采用组件内局部状态管理 | `src/store/useEditorStore.ts`、`src/components/TumEvoPage.tsx` |
 | **适配层**  | JSON → `SceneNode`：HD Map、Layer 导出、通用有界递归 | `src/adapters/jsonToScene.ts`、`mapJsonToScene.ts`、`layerDataToScene.ts` |
 | **场景模型** | `SceneNode` 类型、合并多文件、图遍历工具                      | `src/scene/types.ts`、`buildSceneTree.ts`、`graphUtils.ts`、`constants.ts` |
 | **渲染层**  | 将 `SceneNode` 映射为 Three.js 对象、拾取、选中高亮、相机同步、视口工具栏与距离/角度测量      | `src/components/Viewport3D.tsx`、`ViewportMeasureTool.tsx`、`CameraFocusSync.tsx` |
@@ -73,6 +73,8 @@ flowchart TB
 | `src/utils/jsonMapFile.ts`       | `isJsonMapFileName`：`.json` 且基名中含 `json_map` 词元（排除 `json_mapper` 等） |
 | `src/utils/layerDataFile.ts`     | `isLayerDataJsonFileName`：文件名以 `layer_data.json` 结尾 |
 | `src/utils/tumTrajectory.ts`     | TUM 格式轨迹解析                                                  |
+| `src/utils/tumEvoViz.ts`         | TUM EVO 对齐后时序数据（位置/姿态/速度）构建与姿态换算              |
+| `src/utils/tumEvoApe.ts`         | APE 匹配帧构建、误差统计（max/mean/median/min/rmse/sse/std） |
 | `src/utils/roadLinkColors.ts`    | `road_links` 等线条配色                                          |
 | `src/utils/measurePick.ts` | 测距用射线拾取：优先场景交点，否则 **y=0** 平面；跳过背景网格与地图坐标轴子树（`userData.nodeId`） |
 
@@ -80,6 +82,13 @@ flowchart TB
 
 - **轨道**：`Viewport3D.tsx` 内 `OrbitControls` 的 `mouseButtons` 为左键与中键旋转、右键平移；**滚轮**为缩放（`enableZoom`）。
 - **测量**：右下角悬浮 `ViewportToolbarFab` 可切换距离测量与角度测量（互斥）；逻辑与绘制在 `ViewportMeasureTool.tsx`，拾取在 `measurePick.ts`；store 字段见 `useEditorStore` 中 `measureDistanceToolActive`、`measureDistancePointA/B`、`measureAngleToolActive`、`measureAnglePointA/B/C`。
+
+### TUM EVO 文档评估模块
+
+- **页面容器**：`TumEvoPage.tsx` 负责双轨迹加载、基础校验、确认对比与文档壳层（正文 + 目录）。
+- **可视化与评估展示**：`TumEvoTrajectoryPresentation.tsx` 负责章节化内容渲染（3D 轨迹、位置、RPY、速度、APE 表与时序图）。
+- **图表组件**：`InteractiveTimeSeriesChart.tsx` 提供统一时序图能力（内联图、弹层放大、缩放/平移、复制/保存图片）。
+- **计算链路**：`tumTrajectory.ts` 负责解析，`tumEvoViz.ts` 负责对齐与时序派生量，`tumEvoApe.ts` 负责 APE 统计分析。
 
 ---
 

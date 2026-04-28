@@ -148,7 +148,7 @@
   padding: 20px 28px 30px;
   color: var(--godot-text);
   line-height: 1.9;
-  font-size: 15px;
+  font-size: 1rem;
 }
 
 .tum-evo-doc-toc {
@@ -164,10 +164,8 @@
 
 .tum-evo-doc-toc-heading {
   margin: 0 0 10px 12px;
-  font-size: 11px;
+  font-size: 1rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--godot-text-dim);
 }
 
@@ -175,7 +173,7 @@
   display: block;
   padding: 5px 10px 5px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 1rem;
   line-height: 1.35;
   color: var(--godot-text-dim);
   text-decoration: none;
@@ -204,7 +202,7 @@
 
 .tum-evo-doc-toc-nested a {
   padding-left: 22px;
-  font-size: 11.5px;
+  font-size: 1rem;
   color: var(--godot-text-dim);
 }
 
@@ -229,6 +227,7 @@
   margin: 12px 0 12px;
   font-size: 22px;
   line-height: 1.35;
+  font-weight: 700;
   color: var(--godot-text);
 }
 
@@ -1220,15 +1219,15 @@
 .tum-evo-viz-section-title {
   margin: 0 0 8px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--godot-text);
 }
 
 .tum-evo-viz-desc {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.65;
-  color: var(--godot-text-dim);
+  color: var(--godot-text);
 }
 
 .tum-evo-canvas-wrap {
@@ -1255,7 +1254,7 @@
   flex-wrap: wrap;
   gap: 16px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--godot-text-dim);
 }
 
@@ -1285,7 +1284,7 @@
   width: 100%;
   min-width: 520px;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--godot-text);
 }
 
@@ -1293,8 +1292,8 @@
   caption-side: top;
   padding: 10px 12px 8px;
   text-align: left;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--godot-text);
 }
 
@@ -1308,13 +1307,13 @@
 
 .tum-evo-ape-table th[scope="row"] {
   text-align: left;
-  font-weight: 600;
+  font-weight: 700;
   white-space: normal;
 }
 
 .tum-evo-ape-table thead th {
   background: rgba(255, 255, 255, 0.04);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .tum-evo-ape-table thead th:first-child {
@@ -1322,14 +1321,14 @@
 }
 
 .tum-evo-ape-table tbody th {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .tum-evo-ape-table-unit {
   margin-left: 4px;
   font-weight: 400;
   color: var(--godot-text-dim);
-  font-size: 11px;
+  font-size: 1rem;
 }
 
 .tum-evo-chart-figure {
@@ -1349,16 +1348,16 @@
 
 .tum-evo-chart-title {
   margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--godot-text);
 }
 
 .tum-evo-chart-caption {
   margin: 0 0 6px;
-  font-size: 11px;
+  font-size: 1rem;
   line-height: 1.45;
-  color: var(--godot-text-dim);
+  color: var(--godot-text);
 }
 
 .tum-evo-chart-svg {
@@ -1372,7 +1371,7 @@
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 1rem;
   color: var(--godot-text-dim);
 }
 
@@ -1392,7 +1391,7 @@
 
 .tum-evo-chart-hint-inline {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: 1rem;
   color: var(--godot-text-dim);
 }
 
@@ -1420,7 +1419,7 @@
   z-index: 4100;
   max-width: min(420px, calc(100vw - 40px));
   padding: 11px 20px;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.45;
   text-align: center;
   color: var(--godot-text);
@@ -1451,8 +1450,9 @@
 }
 
 .tum-evo-chart-modal-title {
-  font-size: 16px;
-  font-weight: 600;
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
   color: var(--godot-text);
 }
 
@@ -1465,7 +1465,7 @@
 
 .tum-evo-chart-modal-btn {
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: 1rem;
   border-radius: 4px;
   border: 1px solid var(--godot-border);
   background: var(--godot-bg-input);
@@ -1498,7 +1498,7 @@
 
 .tum-evo-chart-modal-caption {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: 1rem;
   line-height: 1.45;
   color: var(--godot-text-dim);
 }

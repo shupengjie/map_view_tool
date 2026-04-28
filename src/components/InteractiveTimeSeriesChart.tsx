@@ -642,7 +642,7 @@ export function InteractiveTimeSeriesChart({
     return null;
   }
 
-  const hintInline = "双击图表可在中央弹层中缩放、平移，并查看十字线与坐标读数。";
+  const hintInline = "双击图表可在中央弹窗中缩放、平移，并查看十字线与坐标读数。";
   const hintModal = "滚轮缩放 · 拖拽平移 · 鼠标在绘图区内显示时间与数值";
 
   const modal = modalOpen
@@ -661,7 +661,7 @@ export function InteractiveTimeSeriesChart({
               onClick={(e) => e.stopPropagation()}
             >
               <div className="tum-evo-chart-modal-header">
-                <span className="tum-evo-chart-modal-title">{title}</span>
+                <h4 className="tum-evo-chart-modal-title">{title}</h4>
                 <div className="tum-evo-chart-modal-actions">
                   <button type="button" className="tum-evo-chart-modal-btn" onClick={() => void copyModalChartPng()}>
                     复制图片
@@ -721,7 +721,7 @@ export function InteractiveTimeSeriesChart({
   return (
     <>
       <figure className="tum-evo-chart-figure">
-        <figcaption className="tum-evo-chart-title">{title}</figcaption>
+        <h4 className="tum-evo-chart-title">{title}</h4>
         <p className="tum-evo-chart-caption">{caption}</p>
         <p className="tum-evo-chart-hint-inline">{hintInline}</p>
         <div

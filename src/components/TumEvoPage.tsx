@@ -6,14 +6,14 @@ import { TumEvoTrajectoryPresentation } from "@/components/TumEvoTrajectoryPrese
 function TumEvoDocToc() {
   return (
     <aside className="tum-evo-doc-toc" aria-label="本页目录">
-      <p className="tum-evo-doc-toc-heading">目录</p>
+      <h2 className="tum-evo-doc-toc-heading">目录</h2>
       <nav className="tum-evo-doc-toc-nav">
         <ul className="tum-evo-doc-toc-root">
           <li>
-            <a href="#tum-evo-doc-section-1">一、评价基础设定</a>
+            <a href="#tum-evo-doc-section-1">一、评估目标与基础设定</a>
           </li>
           <li>
-            <a href="#tum-evo-doc-section-2">二、轨迹信息呈现</a>
+            <a href="#tum-evo-doc-section-2">二、轨迹信息呈现与解读</a>
             <ul className="tum-evo-doc-toc-nested">
               <li>
                 <a href="#tum-evo-doc-viz-3d">三维轨迹</a>
@@ -30,10 +30,10 @@ function TumEvoDocToc() {
             </ul>
           </li>
           <li>
-            <a href="#tum-evo-doc-section-3">三、绝对位姿误差(APE)</a>
+            <a href="#tum-evo-doc-section-3">三、绝对位姿误差（APE）评估</a>
             <ul className="tum-evo-doc-toc-nested">
               <li>
-                <a href="#tum-evo-doc-ape-timeseries">APE 误差随时间</a>
+                <a href="#tum-evo-doc-ape-timeseries">APE 时序误差</a>
               </li>
             </ul>
           </li>
@@ -325,14 +325,17 @@ export function TumEvoPage({ onBackHome }: { onBackHome: () => void }) {
             <div className="tum-evo-doc-layout">
               <article className="tum-evo-doc-body">
                 <p>
-                  本文采用行业标准评价体系，对不同算法的轨迹精度进行量化对比，核心围绕绝对位姿误差、相对位姿误差及衍生统计指标展开，同时结合运动维度拆分与可视化分析，确保评价全面、客观、可复现。以下为具体评价指标及规范说明。
+                  本文档用于对真值轨迹与测试轨迹进行统一的精度评估，围绕空间位置、姿态变化、速度行为与绝对位姿误差（APE）进行结构化分析。页面内各图表与统计量遵循同一套时间关联与坐标约定，目标是提供可解释、可复查、可复现实验结果。
                 </p>
-                <h2 id="tum-evo-doc-section-1">一、 评价基础设定</h2>
+                <h2 id="tum-evo-doc-section-1">一、评估目标与基础设定</h2>
                 <p>
-                  1. 轨迹数据说明：所有待评价轨迹均统一为TUM格式（每行包含 timestamp tx ty tz qx qy qz qw），确保时间戳对齐、数据格式一致。
+                  1. 轨迹数据格式：真值与测试轨迹均使用 TUM 文本格式（每行字段为 timestamp tx ty tz qx qy qz qw），并以秒级时间戳作为后续对齐与误差计算的基础。
                 </p>
                 <p>
-                  2. 数据对齐方式： 根据实验需求选择对齐策略，默认采用「起点对齐（--align_origin）」。
+                  2. 轨迹对齐策略：本页面展示与评估默认采用起点对齐（align origin），即将测试轨迹首帧平移到真值首帧坐标，便于观察累计漂移与全局偏差。
+                </p>
+                <p>
+                  3. 评估输出构成：文档分为轨迹信息呈现与 APE 误差评估两部分。前者关注运动趋势与结构差异，后者提供可量化统计指标，用于横向比较不同算法或模型版本。
                 </p>
                 {tumGt && tumTest ? (
                   <TumEvoTrajectoryPresentation gt={tumGt.data} est={tumTest.data} />

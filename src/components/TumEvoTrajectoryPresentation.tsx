@@ -221,14 +221,15 @@ export function TumEvoTrajectoryPresentation({
 
   return (
     <>
-      <h2 id="tum-evo-doc-section-2">二、 轨迹信息呈现</h2>
-      <p>轨迹呈现如下：</p>
+      <h2 id="tum-evo-doc-section-2">二、轨迹信息呈现与解读</h2>
+      <p>
+        本节从空间轨迹、位置分量、姿态分量与速度分量四个角度展示真值与测试轨迹在同一时间基准下的变化过程，帮助定位“误差出现在哪个维度、从何时开始、如何累积”。
+      </p>
 
       <VizSection id="tum-evo-doc-viz-3d" title="三维轨迹">
         <>
           <p className="tum-evo-viz-desc">
-            轨迹文件采用车辆坐标约定：x 为车头方向、y 为车身左侧、z 为车顶向上；三维展示与 Json Map View 主视口一致，将上述坐标映射到 Three.js
-            Y-up 场景（地面为水平面）。下图绘制真值与「起点对齐」后的测试轨迹，仅对测试施加与真值首帧一致的平移。可拖拽旋转视角；在视口内滚动滚轮仅缩放场景，不会带动页面滚动。
+            轨迹文件采用车辆坐标约定：x 为车头前向、y 为车身左向、z 为车顶上向。三维视图与 Json Map View 主视口保持一致，统一映射到 Three.js 的 Y-up 场景。图中同时绘制真值轨迹与起点对齐后的测试轨迹，用于直观观察路径形状、转向一致性与空间偏移趋势。
           </p>
           <TumEvoCanvasWrap>
             <Canvas gl={{ antialias: true }} className="tum-evo-canvas">
@@ -245,7 +246,7 @@ export function TumEvoTrajectoryPresentation({
       <VizSection id="tum-evo-doc-viz-position" title="位置分量随时间">
         <>
           <p className="tum-evo-viz-desc">
-            横轴为自两条轨迹较早起点起计的时间（秒），纵轴为轨迹文件中车辆坐标系下的位置分量（米）：x 车头前、y 车身左、z 车顶向上。蓝线为真值，橙线为起点对齐后的测试轨迹。
+            横轴为相对时间（从两条轨迹较早起点开始计时），纵轴为车辆坐标系下的位置分量（米）。该组图用于识别测试轨迹在前向、侧向、垂向上的系统偏差与局部偏移，蓝线代表真值，橙线代表起点对齐后的测试轨迹。
           </p>
           <div className="tum-evo-chart-grid">
             <InteractiveTimeSeriesChart
@@ -282,7 +283,7 @@ export function TumEvoTrajectoryPresentation({
       <VizSection id="tum-evo-doc-viz-rpy" title="姿态 (RPY) 随时间">
         <>
           <p className="tum-evo-viz-desc">
-            将每条轨迹的四元数 (qx, qy, qz, qw) 按 ZYX 内旋顺序转换为滚转、俯仰、偏航角（度）。平移对齐不改变四元数，故测试轨迹的姿态曲线与对齐前一致，仅与真值在同一时间轴上对比。
+            四元数 (qx, qy, qz, qw) 统一按 ZYX 内旋顺序转换为 Roll、Pitch、Yaw（度）。由于起点对齐仅影响平移，不改变姿态，故该组图可直接反映测试轨迹在姿态估计上的相位差、幅值偏差与漂移情况。
           </p>
           <div className="tum-evo-chart-grid">
             <InteractiveTimeSeriesChart
@@ -337,8 +338,7 @@ export function TumEvoTrajectoryPresentation({
       <VizSection id="tum-evo-doc-viz-velocity" title="车辆速度随时间">
         <>
           <p className="tum-evo-viz-desc">
-            速度由相邻位姿在车辆坐标系下的位置差分除以时间间隔得到，首点记为 0。起点对齐仅平移位置，故测试轨迹速度与对齐前一致。下图先给出合速度大小 |v| =
-            √(vx²+vy²+vz²)，其后为各轴分量，便于先看整体快慢再看车头、侧向、垂向上的节奏差异。
+            速度由相邻位姿位置差分除以时间间隔得到（首点置 0），并拆分为合速度与三轴分量。该组图用于判断测试轨迹是否在动态节奏上与真值一致，尤其适合定位急加减速段、转弯段或起伏路段中的时序误差。
           </p>
           <div className="tum-evo-chart-grid">
             <InteractiveTimeSeriesChart
@@ -387,20 +387,20 @@ export function TumEvoTrajectoryPresentation({
         </>
       </VizSection>
 
-      <h2 id="tum-evo-doc-section-3">三、 绝对位姿误差(APE)</h2>
+      <h2 id="tum-evo-doc-section-3">三、绝对位姿误差（APE）评估</h2>
       <p>
-        核心指标分为绝对位姿误差（APE），反映轨迹全局精度，所有误差单位统一为「平移：米（m），旋转：度（°）」。
+        APE 用于衡量测试轨迹在全局参考下的偏差水平。本文统一采用“平移误差（m）+ 旋转误差角（°）”的双指标体系，并提供统计量与时序曲线，兼顾整体结论与局部诊断。
       </p>
       {ape ? (
         <>
           <p className="tum-evo-viz-desc">
-            在真值时间戳上对测试轨迹做就近时间关联；平移采用与上文一致的「起点对齐」（测试首帧平移到真值首帧）。APE
-            平移误差为真值位置减对齐后测试位置，下图给出范数与各分量；旋转误差为相对姿态 R<sub>gt</sub>R<sub>est</sub>
-            <sup>−1</sup> 的几何转角（取最短路径，0°–180°）。
+            误差计算流程为：先在真值时间轴上对测试轨迹进行就近时间关联，再按起点对齐后的结果计算误差。平移误差定义为“真值位置 − 对齐后测试位置”，旋转误差定义为相对姿态
+            R<sub>gt</sub>R<sub>est</sub>
+            <sup>−1</sup> 的几何转角（取最短路径，范围 0°–180°）。
           </p>
           <div className="tum-evo-ape-table-wrap">
             <table className="tum-evo-ape-table">
-              <caption className="tum-evo-ape-table-caption">APE 误差统计（全匹配帧）</caption>
+              <caption className="tum-evo-ape-table-caption">APE 误差统计（基于全部有效匹配帧）</caption>
               <thead>
                 <tr>
                   <th scope="col">指标</th>
@@ -423,6 +423,9 @@ export function TumEvoTrajectoryPresentation({
           <div id="tum-evo-doc-ape-timeseries" className="tum-evo-doc-scroll-anchor" aria-hidden />
           <VizSection title="APE 误差随时间">
             <>
+              <p className="tum-evo-viz-desc">
+                时序图用于查看误差在不同时间段的分布特征：若均值较小但局部峰值较高，通常代表特定工况下存在不稳定估计；若三轴分量长期同向偏移，则可能存在坐标系标定或外参误差。
+              </p>
               <div className="tum-evo-chart-grid">
                 <InteractiveTimeSeriesChart
                   title="‖Δt‖(t)"
@@ -463,7 +466,7 @@ export function TumEvoTrajectoryPresentation({
       ) : (
         <>
           <div id="tum-evo-doc-ape-timeseries" className="tum-evo-doc-scroll-anchor" aria-hidden />
-          <p className="tum-evo-viz-desc">当前数据无法形成真值–测试时间匹配帧，未生成 APE 表与曲线。</p>
+          <p className="tum-evo-viz-desc">当前数据未形成足够的真值-测试有效匹配帧，暂不生成 APE 统计表与误差时序图。</p>
         </>
       )}
     </>

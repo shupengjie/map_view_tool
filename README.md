@@ -2,12 +2,14 @@
 
 在浏览器中加载本地 **JSON 地图**（HD Map）、**Layer 导出 JSON**（`*layer_data.json`）与 **TUM 轨迹**，以 3D 视口、场景树与属性面板进行查看与筛选的纯前端工具。数据不离开本机。
 
+新增 **TUM EVO** 文档化评估页面：支持双轨迹加载、起点对齐、轨迹多维可视化（3D/位置/RPY/速度）与绝对位姿误差（APE）统计及时序分析。
+
 ## 文档
 
 | 文档 | 说明 |
 |------|------|
-| [使用说明](docs/USAGE.md) | 环境、命令、界面操作（含 3D 视口轨道、距离/角度测量）、文件格式与常见问题 |
-| [架构设计](docs/ARCHITECTURE.md) | 技术栈、分层、模块职责与扩展方式 |
+| [使用说明](docs/USAGE.md) | 环境、命令、主页面与 TUM EVO 页操作、文件格式与常见问题 |
+| [架构设计](docs/ARCHITECTURE.md) | 技术栈、分层、模块职责（含 TUM EVO 分析链路）与扩展方式 |
 | [GitHub Pages 部署](docs/github-pages-deploy.md) | 在线站点构建与 `base` 路径配置 |
 
 ## 本地运行
