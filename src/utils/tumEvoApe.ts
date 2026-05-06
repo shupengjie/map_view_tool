@@ -1,5 +1,11 @@
 import { Quaternion } from "three";
-import type { TumOriginAlignedBundle, TumPoseWithVel } from "@/utils/tumEvoViz";
+import {
+  quatToRpyRad,
+  radToDeg,
+  shortestAngleDiffDeg,
+  type TumOriginAlignedBundle,
+  type TumPoseWithVel,
+} from "@/utils/tumEvoViz";
 
 /** Per matched frame: time relative to doc t0, translation residual (m), rotation geodesic (deg). */
 export interface ApeFrameError {
@@ -27,7 +33,107 @@ export interface ApeAnalysis {
   readonly rotStats: ApeErrorStats;
 }
 
-function matchGtToEst(
+/** Per-sample error sequence stats (真值 − 测试，时间对齐于真值). */
+export interface SeriesErrorStats {
+  readonly count: number;
+  readonly max: number;
+  readonly min: number;
+  readonly median: number;
+  /** Modal value after rounding; null if no repeated rounded value. */
+  readonly mode: number | null;
+  readonly mean: number;
+  /** Sample variance (n−1). */
+  readonly variance: number;
+  readonly std: number;
+  /** Empirical P(|e − mean| ≤ k·std), k=1,2,3; std 为样本标准差。 */
+  readonly pWithin1Sigma: number;
+  readonly pWithin2Sigma: number;
+  readonly pWithin3Sigma: number;
+}
+
+function computeRoundedMode(values: readonly number[], decimals: number): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+  const p = 10 ** decimals;
+  const counts = new Map<number, number>();
+  for (const v of values) {
+    const k = Math.round(v * p) / p;
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  let best: number | null = null;
+  let bestCount = 0;
+  for (const [k, c] of counts) {
+    if (c > bestCount) {
+      bestCount = c;
+      best = k;
+    }
+  }
+  if (bestCount <= 1 && values.length > 1) {
+    return null;
+  }
+  return best;
+}
+
+export function summarizeSeriesErrorStats(
+  values: readonly number[],
+  modeDecimals: number,
+): SeriesErrorStats | null {
+  const n = values.length;
+  if (n === 0) {
+    return null;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const min = sorted[0]!;
+  const max = sorted[n - 1]!;
+  const sum = values.reduce((acc, x) => acc + x, 0);
+  const mean = sum / n;
+  const sumSqDev = values.reduce((acc, x) => acc + (x - mean) * (x - mean), 0);
+  const variance = n > 1 ? sumSqDev / (n - 1) : 0;
+  const std = n > 1 ? Math.sqrt(variance) : 0;
+  const median =
+    n % 2 === 1 ? sorted[(n - 1) / 2]! : (sorted[n / 2 - 1]! + sorted[n / 2]!) / 2;
+  const mode = computeRoundedMode(values, modeDecimals);
+
+  let p1 = 0;
+  let p2 = 0;
+  let p3 = 0;
+  if (!Number.isFinite(std) || std === 0) {
+    p1 = p2 = p3 = 1;
+  } else {
+    for (const x of values) {
+      const d = Math.abs(x - mean);
+      if (d <= std) {
+        p1 += 1;
+      }
+      if (d <= 2 * std) {
+        p2 += 1;
+      }
+      if (d <= 3 * std) {
+        p3 += 1;
+      }
+    }
+    p1 /= n;
+    p2 /= n;
+    p3 /= n;
+  }
+
+  return {
+    count: n,
+    max,
+    min,
+    median,
+    mode,
+    mean,
+    variance,
+    std,
+    pWithin1Sigma: p1,
+    pWithin2Sigma: p2,
+    pWithin3Sigma: p3,
+  };
+}
+
+export function matchGtToEst(
   gt: readonly TumPoseWithVel[],
   est: readonly TumPoseWithVel[],
 ): { g: TumPoseWithVel; e: TumPoseWithVel }[] {
@@ -50,6 +156,65 @@ function matchGtToEst(
     }
   }
   return out;
+}
+
+/** 与图表一致：真值时间戳就近配对后的标量误差序列（真值 − 测试）。 */
+export interface TrajectoryScalarErrorSets {
+  readonly posX: readonly number[];
+  readonly posY: readonly number[];
+  readonly posZ: readonly number[];
+  readonly rollDeg: readonly number[];
+  readonly pitchDeg: readonly number[];
+  readonly yawDeg: readonly number[];
+  readonly speed: readonly number[];
+  readonly vx: readonly number[];
+  readonly vy: readonly number[];
+  readonly vz: readonly number[];
+}
+
+export function computeTrajectoryScalarErrors(
+  bundle: TumOriginAlignedBundle,
+): TrajectoryScalarErrorSets | null {
+  const pairs = matchGtToEst(bundle.gt, bundle.estAligned);
+  if (pairs.length < 1) {
+    return null;
+  }
+  const posX: number[] = [];
+  const posY: number[] = [];
+  const posZ: number[] = [];
+  const rollDeg: number[] = [];
+  const pitchDeg: number[] = [];
+  const yawDeg: number[] = [];
+  const speed: number[] = [];
+  const vx: number[] = [];
+  const vy: number[] = [];
+  const vz: number[] = [];
+  for (const { g, e } of pairs) {
+    posX.push(g.x - e.x);
+    posY.push(g.y - e.y);
+    posZ.push(g.z - e.z);
+    const gR = quatToRpyRad(g.qx, g.qy, g.qz, g.qw);
+    const eR = quatToRpyRad(e.qx, e.qy, e.qz, e.qw);
+    rollDeg.push(shortestAngleDiffDeg(radToDeg(gR.roll), radToDeg(eR.roll)));
+    pitchDeg.push(shortestAngleDiffDeg(radToDeg(gR.pitch), radToDeg(eR.pitch)));
+    yawDeg.push(shortestAngleDiffDeg(radToDeg(gR.yaw), radToDeg(eR.yaw)));
+    speed.push(Math.hypot(g.vx, g.vy, g.vz) - Math.hypot(e.vx, e.vy, e.vz));
+    vx.push(g.vx - e.vx);
+    vy.push(g.vy - e.vy);
+    vz.push(g.vz - e.vz);
+  }
+  return {
+    posX,
+    posY,
+    posZ,
+    rollDeg,
+    pitchDeg,
+    yawDeg,
+    speed,
+    vx,
+    vy,
+    vz,
+  };
 }
 
 /** Geodesic angle (deg) between orientations: R_rel = R_gt · R_est⁻¹, shortest path. */

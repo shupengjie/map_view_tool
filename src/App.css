@@ -1271,6 +1271,25 @@
   width: 100%;
 }
 
+.tum-evo-chart-with-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.tum-evo-series-error-table-wrap .tum-evo-series-error-table {
+  min-width: 880px;
+}
+
+.tum-evo-series-error-hint {
+  margin: 0;
+  padding: 0 12px 8px;
+  font-size: 1rem;
+  color: var(--godot-text-dim);
+  line-height: 1.45;
+}
+
 .tum-evo-ape-table-wrap {
   width: 100%;
   overflow-x: auto;

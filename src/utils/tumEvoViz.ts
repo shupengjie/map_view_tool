@@ -59,6 +59,18 @@ export function radToDeg(r: number): number {
   return (r * 180) / Math.PI;
 }
 
+/** Shortest signed angle difference (deg) for comparing two absolute Euler angles in degrees. */
+export function shortestAngleDiffDeg(gtDeg: number, estDeg: number): number {
+  let d = gtDeg - estDeg;
+  while (d > 180) {
+    d -= 360;
+  }
+  while (d < -180) {
+    d += 360;
+  }
+  return d;
+}
+
 /**
  * First-pose translation: align estimated origin to ground-truth first position (evo --align_origin style).
  * Quaternions are unchanged (translation-only alignment).

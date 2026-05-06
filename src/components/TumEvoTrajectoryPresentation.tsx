@@ -1,15 +1,27 @@
 import { Canvas, useThree } from "@react-three/fiber";
-import { Grid, Line, OrbitControls } from "@react-three/drei";
+import { GizmoHelper, GizmoViewport, Grid, Line, OrbitControls } from "@react-three/drei";
 import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Box3, Sphere, Vector3 } from "three";
 import { mapJsonPointToThree } from "@/adapters/mapJsonToScene";
 import { InteractiveTimeSeriesChart } from "@/components/InteractiveTimeSeriesChart";
+import {
+  GIZMO_VIEWPORT_AXIS_COLORS,
+  MAP_FRAME_SCENE_GRID_FADE_DISTANCE,
+  MapFrameAxesR3f,
+} from "@/components/MapFrameAxes";
 import type { ParsedTumTrajectory } from "@/utils/tumTrajectory";
-import { computeApeAnalysis, type ApeErrorStats } from "@/utils/tumEvoApe";
+import {
+  computeApeAnalysis,
+  computeTrajectoryScalarErrors,
+  summarizeSeriesErrorStats,
+  type ApeErrorStats,
+  type SeriesErrorStats,
+} from "@/utils/tumEvoApe";
 import {
   computeOriginAlignedBundle,
   quatToRpyRad,
   radToDeg,
+  type TumOriginAlignedBundle,
   type TumPoseWithVel,
 } from "@/utils/tumEvoViz";
 
@@ -106,18 +118,28 @@ function TumEvoScene3D({
       <ambientLight intensity={0.55} />
       <directionalLight position={[8, 14, 10]} intensity={0.9} />
       <Grid
-        args={[80, 80]}
-        cellSize={1}
-        cellThickness={0.6}
-        sectionSize={5}
-        sectionThickness={1}
-        fadeDistance={120}
         infiniteGrid
+        fadeDistance={MAP_FRAME_SCENE_GRID_FADE_DISTANCE}
+        fadeStrength={1.25}
+        cellSize={1}
+        cellThickness={0.55}
+        cellColor="#424242"
+        sectionSize={10}
+        sectionThickness={1.05}
+        sectionColor="#4f6fa8"
         position={[0, 0, 0]}
       />
+      <MapFrameAxesR3f />
       <Line points={gtPoints} color="#72c2ff" lineWidth={2} />
       <Line points={estPoints} color="#ffb77a" lineWidth={2} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} />
+      <GizmoHelper alignment="top-right" margin={[72, 72]}>
+        <GizmoViewport
+          labels={["前", "上", "右"]}
+          axisColors={[...GIZMO_VIEWPORT_AXIS_COLORS]}
+          labelColor="#e8e8e8"
+        />
+      </GizmoHelper>
       <CameraFit pointsA={gtPoints} pointsB={estPoints} />
     </>
   );
@@ -155,6 +177,116 @@ function fmtApeSse(x: number): string {
     return "—";
   }
   return Math.abs(x) >= 1e4 || Math.abs(x) < 1e-3 ? x.toExponential(4) : x.toFixed(4);
+}
+
+function fmtEmpiricalSigmaProb(p: number): string {
+  return `${(p * 100).toFixed(2)}%`;
+}
+
+function buildSeriesErrorTableStats(
+  bundle: TumOriginAlignedBundle | null,
+): Record<
+  | "posX"
+  | "posY"
+  | "posZ"
+  | "rollDeg"
+  | "pitchDeg"
+  | "yawDeg"
+  | "speed"
+  | "vx"
+  | "vy"
+  | "vz",
+  SeriesErrorStats | null
+> | null {
+  if (!bundle) {
+    return null;
+  }
+  const err = computeTrajectoryScalarErrors(bundle);
+  if (!err) {
+    return null;
+  }
+  const mdPos = 6;
+  const mdAngle = 4;
+  const mdVel = 6;
+  return {
+    posX: summarizeSeriesErrorStats(err.posX, mdPos),
+    posY: summarizeSeriesErrorStats(err.posY, mdPos),
+    posZ: summarizeSeriesErrorStats(err.posZ, mdPos),
+    rollDeg: summarizeSeriesErrorStats(err.rollDeg, mdAngle),
+    pitchDeg: summarizeSeriesErrorStats(err.pitchDeg, mdAngle),
+    yawDeg: summarizeSeriesErrorStats(err.yawDeg, mdAngle),
+    speed: summarizeSeriesErrorStats(err.speed, mdVel),
+    vx: summarizeSeriesErrorStats(err.vx, mdVel),
+    vy: summarizeSeriesErrorStats(err.vy, mdVel),
+    vz: summarizeSeriesErrorStats(err.vz, mdVel),
+  };
+}
+
+function TumEvoSeriesErrorTable({
+  caption,
+  unitLabel,
+  stats,
+  valueFmt,
+  varianceFmt = fmtApeSse,
+}: {
+  caption: string;
+  unitLabel: string;
+  stats: SeriesErrorStats | null;
+  valueFmt: (n: number) => string;
+  varianceFmt?: (n: number) => string;
+}) {
+  if (!stats) {
+    return null;
+  }
+  return (
+    <div className="tum-evo-ape-table-wrap tum-evo-series-error-table-wrap">
+      <table className="tum-evo-ape-table tum-evo-series-error-table">
+        <caption className="tum-evo-ape-table-caption">{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col">指标</th>
+            <th scope="col">最大值</th>
+            <th scope="col">最小值</th>
+            <th scope="col">中位数</th>
+            <th scope="col">众数</th>
+            <th scope="col">平均数</th>
+            <th scope="col">方差</th>
+            <th scope="col">标准差</th>
+            <th scope="col" title="P(|e − 均值| ≤ 1·σ)，σ 为样本标准差">
+              1σ 占比
+            </th>
+            <th scope="col" title="P(|e − 均值| ≤ 2·σ)">
+              2σ 占比
+            </th>
+            <th scope="col" title="P(|e − 均值| ≤ 3·σ)">
+              3σ 占比
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">
+              误差（真值 − 测试）
+              <span className="tum-evo-ape-table-unit">（{unitLabel}）</span>
+            </th>
+            <td>{valueFmt(stats.max)}</td>
+            <td>{valueFmt(stats.min)}</td>
+            <td>{valueFmt(stats.median)}</td>
+            <td>{stats.mode !== null ? valueFmt(stats.mode) : "—"}</td>
+            <td>{valueFmt(stats.mean)}</td>
+            <td>{varianceFmt(stats.variance)}</td>
+            <td>{valueFmt(stats.std)}</td>
+            <td>{fmtEmpiricalSigmaProb(stats.pWithin1Sigma)}</td>
+            <td>{fmtEmpiricalSigmaProb(stats.pWithin2Sigma)}</td>
+            <td>{fmtEmpiricalSigmaProb(stats.pWithin3Sigma)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="tum-evo-series-error-hint">
+        基于 n={stats.count} 个配对点（真值时间戳就近关联）；众数为按小数舍入后的众数；σ 为样本标准差。
+      </p>
+    </div>
+  );
 }
 
 function ApeStatsTableRow({
@@ -206,6 +338,7 @@ export function TumEvoTrajectoryPresentation({
   const estPts = useMemo(() => (bundle ? trajectoryVehicleToScenePoints(bundle.estAligned) : []), [bundle]);
 
   const ape = useMemo(() => (bundle ? computeApeAnalysis(bundle, t0) : null), [bundle, t0]);
+  const seriesErrStats = useMemo(() => buildSeriesErrorTableStats(bundle), [bundle]);
 
   if (!bundle) {
     return null;
@@ -249,33 +382,57 @@ export function TumEvoTrajectoryPresentation({
             横轴为相对时间（从两条轨迹较早起点开始计时），纵轴为车辆坐标系下的位置分量（米）。该组图用于识别测试轨迹在前向、侧向、垂向上的系统偏差与局部偏移，蓝线代表真值，橙线代表起点对齐后的测试轨迹。
           </p>
           <div className="tum-evo-chart-grid">
-            <InteractiveTimeSeriesChart
-              title="X(t)"
-              caption="车辆系 x（车头前）位置随时间变化。"
-              unit="m"
-              series={[
-                { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.x, t0) },
-                { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.x, t0) },
-              ]}
-            />
-            <InteractiveTimeSeriesChart
-              title="Y(t)"
-              caption="车辆系 y（车身左）位置随时间变化。"
-              unit="m"
-              series={[
-                { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.y, t0) },
-                { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.y, t0) },
-              ]}
-            />
-            <InteractiveTimeSeriesChart
-              title="Z(t)"
-              caption="车辆系 z（车顶上）位置随时间变化。"
-              unit="m"
-              series={[
-                { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.z, t0) },
-                { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.z, t0) },
-              ]}
-            />
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="X(t)"
+                caption="车辆系 x（车头前）位置随时间变化。"
+                unit="m"
+                series={[
+                  { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.x, t0) },
+                  { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.x, t0) },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="X(t) 分量误差统计"
+                unitLabel="m"
+                stats={seriesErrStats?.posX ?? null}
+                valueFmt={fmtApeM}
+              />
+            </div>
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Y(t)"
+                caption="车辆系 y（车身左）位置随时间变化。"
+                unit="m"
+                series={[
+                  { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.y, t0) },
+                  { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.y, t0) },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Y(t) 分量误差统计"
+                unitLabel="m"
+                stats={seriesErrStats?.posY ?? null}
+                valueFmt={fmtApeM}
+              />
+            </div>
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Z(t)"
+                caption="车辆系 z（车顶上）位置随时间变化。"
+                unit="m"
+                series={[
+                  { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.z, t0) },
+                  { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.z, t0) },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Z(t) 分量误差统计"
+                unitLabel="m"
+                stats={seriesErrStats?.posZ ?? null}
+                valueFmt={fmtApeM}
+              />
+            </div>
           </div>
         </>
       </VizSection>
@@ -286,51 +443,75 @@ export function TumEvoTrajectoryPresentation({
             四元数 (qx, qy, qz, qw) 统一按 ZYX 内旋顺序转换为 Roll、Pitch、Yaw（度）。由于起点对齐仅影响平移，不改变姿态，故该组图可直接反映测试轨迹在姿态估计上的相位差、幅值偏差与漂移情况。
           </p>
           <div className="tum-evo-chart-grid">
-            <InteractiveTimeSeriesChart
-              title="Roll(t)"
-              caption="绕 X 轴转角随时间变化。"
-              unit="°"
-              series={[
-                {
-                  ...sGt,
-                  points: rowsToTimeValue(bundle.gt, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).roll), t0),
-                },
-                {
-                  ...sEst,
-                  points: rowsToTimeValue(bundle.estAligned, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).roll), t0),
-                },
-              ]}
-            />
-            <InteractiveTimeSeriesChart
-              title="Pitch(t)"
-              caption="绕 Y 轴转角随时间变化。"
-              unit="°"
-              series={[
-                {
-                  ...sGt,
-                  points: rowsToTimeValue(bundle.gt, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).pitch), t0),
-                },
-                {
-                  ...sEst,
-                  points: rowsToTimeValue(bundle.estAligned, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).pitch), t0),
-                },
-              ]}
-            />
-            <InteractiveTimeSeriesChart
-              title="Yaw(t)"
-              caption="绕 Z 轴转角随时间变化。"
-              unit="°"
-              series={[
-                {
-                  ...sGt,
-                  points: rowsToTimeValue(bundle.gt, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).yaw), t0),
-                },
-                {
-                  ...sEst,
-                  points: rowsToTimeValue(bundle.estAligned, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).yaw), t0),
-                },
-              ]}
-            />
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Roll(t)"
+                caption="绕 X 轴转角随时间变化。"
+                unit="°"
+                series={[
+                  {
+                    ...sGt,
+                    points: rowsToTimeValue(bundle.gt, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).roll), t0),
+                  },
+                  {
+                    ...sEst,
+                    points: rowsToTimeValue(bundle.estAligned, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).roll), t0),
+                  },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Roll(t) 误差统计（最短角差）"
+                unitLabel="°"
+                stats={seriesErrStats?.rollDeg ?? null}
+                valueFmt={fmtApeDeg}
+              />
+            </div>
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Pitch(t)"
+                caption="绕 Y 轴转角随时间变化。"
+                unit="°"
+                series={[
+                  {
+                    ...sGt,
+                    points: rowsToTimeValue(bundle.gt, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).pitch), t0),
+                  },
+                  {
+                    ...sEst,
+                    points: rowsToTimeValue(bundle.estAligned, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).pitch), t0),
+                  },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Pitch(t) 误差统计（最短角差）"
+                unitLabel="°"
+                stats={seriesErrStats?.pitchDeg ?? null}
+                valueFmt={fmtApeDeg}
+              />
+            </div>
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Yaw(t)"
+                caption="绕 Z 轴转角随时间变化。"
+                unit="°"
+                series={[
+                  {
+                    ...sGt,
+                    points: rowsToTimeValue(bundle.gt, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).yaw), t0),
+                  },
+                  {
+                    ...sEst,
+                    points: rowsToTimeValue(bundle.estAligned, (r) => radToDeg(quatToRpyRad(r.qx, r.qy, r.qz, r.qw).yaw), t0),
+                  },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Yaw(t) 误差统计（最短角差）"
+                unitLabel="°"
+                stats={seriesErrStats?.yawDeg ?? null}
+                valueFmt={fmtApeDeg}
+              />
+            </div>
           </div>
         </>
       </VizSection>
@@ -341,48 +522,80 @@ export function TumEvoTrajectoryPresentation({
             速度由相邻位姿位置差分除以时间间隔得到（首点置 0），并拆分为合速度与三轴分量。该组图用于判断测试轨迹是否在动态节奏上与真值一致，尤其适合定位急加减速段、转弯段或起伏路段中的时序误差。
           </p>
           <div className="tum-evo-chart-grid">
-            <InteractiveTimeSeriesChart
-              title="|v|(t)"
-              caption="合速度大小（标量速率）随时间变化。"
-              unit="m/s"
-              series={[
-                {
-                  ...sGt,
-                  points: rowsToTimeValue(bundle.gt, (r) => Math.hypot(r.vx, r.vy, r.vz), t0),
-                },
-                {
-                  ...sEst,
-                  points: rowsToTimeValue(bundle.estAligned, (r) => Math.hypot(r.vx, r.vy, r.vz), t0),
-                },
-              ]}
-            />
-            <InteractiveTimeSeriesChart
-              title="Vx(t)"
-              caption="沿车辆 x（车头前）方向速度随时间变化。"
-              unit="m/s"
-              series={[
-                { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.vx, t0) },
-                { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.vx, t0) },
-              ]}
-            />
-            <InteractiveTimeSeriesChart
-              title="Vy(t)"
-              caption="沿车辆 y（车身左）方向速度随时间变化。"
-              unit="m/s"
-              series={[
-                { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.vy, t0) },
-                { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.vy, t0) },
-              ]}
-            />
-            <InteractiveTimeSeriesChart
-              title="Vz(t)"
-              caption="沿车辆 z（车顶上）方向速度随时间变化。"
-              unit="m/s"
-              series={[
-                { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.vz, t0) },
-                { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.vz, t0) },
-              ]}
-            />
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="|v|(t)"
+                caption="合速度大小（标量速率）随时间变化。"
+                unit="m/s"
+                series={[
+                  {
+                    ...sGt,
+                    points: rowsToTimeValue(bundle.gt, (r) => Math.hypot(r.vx, r.vy, r.vz), t0),
+                  },
+                  {
+                    ...sEst,
+                    points: rowsToTimeValue(bundle.estAligned, (r) => Math.hypot(r.vx, r.vy, r.vz), t0),
+                  },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="|v|(t) 误差统计（合速度差）"
+                unitLabel="m/s"
+                stats={seriesErrStats?.speed ?? null}
+                valueFmt={fmtApeM}
+              />
+            </div>
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Vx(t)"
+                caption="沿车辆 x（车头前）方向速度随时间变化。"
+                unit="m/s"
+                series={[
+                  { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.vx, t0) },
+                  { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.vx, t0) },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Vx(t) 分量误差统计"
+                unitLabel="m/s"
+                stats={seriesErrStats?.vx ?? null}
+                valueFmt={fmtApeM}
+              />
+            </div>
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Vy(t)"
+                caption="沿车辆 y（车身左）方向速度随时间变化。"
+                unit="m/s"
+                series={[
+                  { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.vy, t0) },
+                  { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.vy, t0) },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Vy(t) 分量误差统计"
+                unitLabel="m/s"
+                stats={seriesErrStats?.vy ?? null}
+                valueFmt={fmtApeM}
+              />
+            </div>
+            <div className="tum-evo-chart-with-stats">
+              <InteractiveTimeSeriesChart
+                title="Vz(t)"
+                caption="沿车辆 z（车顶上）方向速度随时间变化。"
+                unit="m/s"
+                series={[
+                  { ...sGt, points: rowsToTimeValue(bundle.gt, (r) => r.vz, t0) },
+                  { ...sEst, points: rowsToTimeValue(bundle.estAligned, (r) => r.vz, t0) },
+                ]}
+              />
+              <TumEvoSeriesErrorTable
+                caption="Vz(t) 分量误差统计"
+                unitLabel="m/s"
+                stats={seriesErrStats?.vz ?? null}
+                valueFmt={fmtApeM}
+              />
+            </div>
           </div>
         </>
       </VizSection>
