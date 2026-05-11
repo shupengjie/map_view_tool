@@ -1,4 +1,4 @@
-import logoUrl from "@/icons/logo.png";
+import logoUrl from "@/icons/logo.svg";
 
 export function TumEvoToolbar({ onBackHome }: { onBackHome?: () => void }) {
   return (

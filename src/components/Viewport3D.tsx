@@ -3,28 +3,32 @@
  * Meshes carry `userData.nodeId` for picking; canvas background click clears selection.
  */
 
-import { CameraFocusSync } from "@/components/CameraFocusSync";
 import { GIZMO_VIEWPORT_AXIS_COLORS, MAP_FRAME_SCENE_GRID_FADE_DISTANCE, MapFrameAxesR3f } from "@/components/MapFrameAxes";
 import { MeasureToolScene } from "@/components/ViewportMeasureTool";
+import { PinAxesNodeView } from "@/components/viewport/PinAxesNodeView";
+import { ViewportToolbarFab } from "@/components/viewport/PinToolFab";
+import { ViewportRig } from "@/components/viewport/ViewportRig";
+import {
+  VIEWPORT_SMALL_SPHERE_H_SEGS,
+  VIEWPORT_SMALL_SPHERE_W_SEGS,
+} from "@/components/viewport/viewportShared";
 import { useEditorStore } from "@/store/useEditorStore";
 import { LANE_LINE_TYPE_ROAD_BOUNDARY } from "@/adapters/mapJsonToScene";
 import { buildArrowPolygonFillGeometry } from "@/scene/arrowPolygonFill";
 import type { SceneNode, Vec3 } from "@/scene/types";
 import { MAP_FRAME_AXES_NODE_ID, SCENE_BACKGROUND_GRID_NODE_ID } from "@/scene/constants";
 import { Canvas, type ThreeEvent, useFrame } from "@react-three/fiber";
-import { Billboard, Edges, GizmoHelper, GizmoViewport, Grid, Line, OrbitControls, Text } from "@react-three/drei";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { Billboard, Edges, GizmoHelper, GizmoViewport, Grid, Line, Text } from "@react-three/drei";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DoubleSide,
   InstancedMesh,
   Mesh as ThreeMesh,
   MeshStandardMaterial,
-  MOUSE,
   Object3D,
   SphereGeometry,
 } from "three";
 import type { Group } from "three";
-import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { Vector3Tuple } from "three";
 
 function vec3Or(a: readonly [number, number, number] | undefined, d: Vector3Tuple): Vector3Tuple {
@@ -158,13 +162,6 @@ function PickableLine({ nodeId, points, color, lineWidth, isSelected, selectedPu
 
 /** World-space radius (m) for each vertex sphere in `road_links` point mode (visible only). */
 const ROAD_LINK_POINT_SPHERE_RADIUS = 0.12;
-
-/**
- * Width/height segments for small viewport spheres (vertices, instanced clouds, pick colliders).
- * Keeps triangle count low; raycasting still uses the same mesh bounds.
- */
-const VIEWPORT_SMALL_SPHERE_W_SEGS = 6;
-const VIEWPORT_SMALL_SPHERE_H_SEGS = 6;
 
 /** Layer export point clouds (`all_boundary_pts` / `all_lane_line_pts`): instanced sphere radius. */
 const LAYER_DATA_POINT_SPHERE_RADIUS = 0.11;
@@ -773,6 +770,16 @@ function SceneNodeViewContentRouter(props: SceneNodeViewContentProps) {
       />
     );
   }
+  if (props.node.type === "pinAxes") {
+    return (
+      <PinAxesNodeView
+        node={props.node}
+        ancestorHidden={props.ancestorHidden}
+        isSelected={props.isSelected}
+        selectedPulse={props.selectedPulse}
+      />
+    );
+  }
   return <SceneNodeViewContentMain {...props} />;
 }
 
@@ -1220,7 +1227,7 @@ function SceneContent() {
       <directionalLight position={[-16, 12, -12]} intensity={0.52} color="#c8d8ff" />
       <directionalLight position={[0, 8, -22]} intensity={0.38} color="#ffe8d0" />
       {/* Infinite grid is rendered under scene root as `sceneBackgroundGrid` (see SceneBackgroundGridNodeView). */}
-      {/* Gizmo follows mapJsonPointToThree: scene X=file x(前), Y=file z(上), Z=-file y(右) */}
+      {/* Gizmo matches the scene-frame basis used by `@/adapters/mapFrame`: scene X=map X(前), Y=map Z(上), Z=-map Y(右) */}
       <GizmoHelper alignment="top-right" margin={[72, 72]}>
         <GizmoViewport
           labels={["前", "上", "右"]}
@@ -1234,156 +1241,11 @@ function SceneContent() {
   );
 }
 
-const MAX_ORBIT_DISTANCE = 200;
-const MAX_CAMERA_Y = 465;
-
-/**
- * Wheel zoom speed scales ~linearly with camera–target distance; max zoom out via maxDistance; max altitude via Y clamp.
- * Middle-button drag rotates (not dolly); wheel zooms. In measure mode, left click is captured before controls see pointerdown.
+/*
+ * Pin tool popover + FAB moved to `viewport/PinToolFab.tsx`.
+ * Camera rig moved to `viewport/ViewportRig.tsx`.
+ * Pin axes scene node view moved to `viewport/PinAxesNodeView.tsx`.
  */
-function OrbitControlsAdaptive({ controlsRef }: { readonly controlsRef: MutableRefObject<OrbitControlsImpl | null> }) {
-  useFrame(() => {
-    const c = controlsRef.current;
-    if (!c) {
-      return;
-    }
-    const d = c.object.position.distanceTo(c.target);
-    c.zoomSpeed = Math.min(4.2, Math.max(0.42, 0.38 + d * 0.072));
-    if (c.object.position.y > MAX_CAMERA_Y) {
-      c.object.position.y = MAX_CAMERA_Y;
-      c.update();
-    }
-  });
-  return (
-    <OrbitControls
-      ref={(instance) => {
-        controlsRef.current = instance;
-      }}
-      makeDefault
-      enableDamping
-      dampingFactor={0.08}
-      enableZoom
-      mouseButtons={{
-        LEFT: MOUSE.ROTATE,
-        MIDDLE: MOUSE.ROTATE,
-        RIGHT: MOUSE.PAN,
-      }}
-      minDistance={1.2}
-      maxDistance={MAX_ORBIT_DISTANCE}
-      minPolarAngle={0.08}
-      maxPolarAngle={Math.PI * 0.499}
-    />
-  );
-}
-
-function ViewportRig() {
-  const controlsRef = useRef<OrbitControlsImpl | null>(null);
-  return (
-    <>
-      <OrbitControlsAdaptive controlsRef={controlsRef} />
-      <CameraFocusSync controlsRef={controlsRef} />
-    </>
-  );
-}
-
-function ViewportToolbarFab() {
-  const [expanded, setExpanded] = useState(false);
-  const measureDistanceToolActive = useEditorStore((s) => s.measureDistanceToolActive);
-  const measureAngleToolActive = useEditorStore((s) => s.measureAngleToolActive);
-  const setMeasureDistanceToolActive = useEditorStore((s) => s.setMeasureDistanceToolActive);
-  const setMeasureAngleToolActive = useEditorStore((s) => s.setMeasureAngleToolActive);
-
-  return (
-    <div className="viewport-toolbar-fab" role="toolbar" aria-label="3D 视口工具">
-      {expanded ? (
-        <div className="viewport-toolbar-fab-tools">
-          <button
-            type="button"
-            className={`viewport-toolbar-fab-tool${measureDistanceToolActive ? " viewport-toolbar-fab-tool--active" : ""}`}
-            title={
-              measureDistanceToolActive
-                ? "关闭距离测量（Esc 也可退出）"
-                : "距离测量：左键选两点；中键拖动旋转；滚轮缩放；右键平移"
-            }
-            aria-label="距离测量"
-            aria-pressed={measureDistanceToolActive}
-            onClick={() => setMeasureDistanceToolActive(!measureDistanceToolActive)}
-          >
-            <svg
-              className="viewport-toolbar-fab-icon"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden
-            >
-              <path
-                d="M5 19L19 5"
-                stroke="currentColor"
-                strokeWidth="1.85"
-                strokeLinecap="round"
-              />
-              <circle cx="5" cy="19" r="2.25" fill="currentColor" />
-              <circle cx="19" cy="5" r="2.25" fill="currentColor" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className={`viewport-toolbar-fab-tool${measureAngleToolActive ? " viewport-toolbar-fab-tool--active" : ""}`}
-            title={
-              measureAngleToolActive
-                ? "关闭角度测量（Esc 也可退出）"
-                : "角度测量：左键选三点，显示夹角（0~180°）；中键拖动旋转；滚轮缩放；右键平移"
-            }
-            aria-label="角度测量"
-            aria-pressed={measureAngleToolActive}
-            onClick={() => setMeasureAngleToolActive(!measureAngleToolActive)}
-          >
-            <svg
-              className="viewport-toolbar-fab-icon"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden
-            >
-              <path d="M5 18L12 6L19 18" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
-              <path d="M8.8 14.5A4 4 0 0112 12.9a4 4 0 013.2 1.6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-              <circle cx="12" cy="6" r="1.7" fill="currentColor" />
-            </svg>
-          </button>
-        </div>
-      ) : null}
-      <button
-        type="button"
-        className={`viewport-toolbar-fab-toggle${expanded ? " viewport-toolbar-fab-toggle--open" : ""}`}
-        aria-expanded={expanded}
-        title={expanded ? "收起 3D 视口工具" : "3D 视口工具"}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <svg
-          className="viewport-toolbar-fab-icon"
-          width="22"
-          height="22"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden
-        >
-          <path
-            d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-    </div>
-  );
-}
 
 export function Viewport3D() {
   const clearSelection = useEditorStore((s) => s.clearSelection);

@@ -7,7 +7,9 @@
 import {
   jsonDocumentWrapperId,
   MAP_FRAME_AXES_NODE_ID,
+  pinSceneNodeId,
   SCENE_BACKGROUND_GRID_NODE_ID,
+  SCENE_PIN_ROOT_ID,
   SCENE_ROOT_ID,
   TRAJECTORY_ROOT_ID,
 } from "@/scene/constants";
@@ -29,6 +31,24 @@ export interface TumTrajectorySceneSlice {
   readonly fileName: string;
   readonly color: string;
   readonly pointsScene: readonly Vec3[];
+}
+
+/** User-placed pin pose; renders as a small positive-direction RGB triad under the pin root. */
+export interface PinSceneSlice {
+  /** Monotonic, never re-used across the session. Doubles as the user-visible label suffix. */
+  readonly pinId: number;
+  /**
+   * Map-frame position (X 前, Y 左, Z 上) — same convention as the loaded `json_map` files.
+   * The viewport renders through `<MapFrameGroup>` (see `@/adapters/mapFrame`); the inspector
+   * echoes these raw user-input values without conversion.
+   */
+  readonly position: readonly [number, number, number];
+  /**
+   * Quaternion (qx, qy, qz, qw) expressed in the map frame; must be unit-norm (the popover validates
+   * this before insertion). The viewport hands it to `<MapFrameGroup>`, which performs the canonical
+   * map→scene basis change (`mapToSceneQuaternion`). The inspector echoes the raw input values.
+   */
+  readonly orientation: readonly [number, number, number, number];
 }
 
 export function tumTrajectoryToSceneNode(t: TumTrajectorySceneSlice): SceneNode {
@@ -87,13 +107,29 @@ function gridSlotIndexPerDocument(documents: readonly DocumentSceneSlice[]): { s
   return { slots, slotCount: nextSlot };
 }
 
+function pinToSceneNode(p: PinSceneSlice): SceneNode {
+  return {
+    id: pinSceneNodeId(p.pinId),
+    name: `图钉${p.pinId}`,
+    type: "pinAxes",
+    children: [],
+    payload: {
+      role: "pin",
+      pinId: p.pinId,
+      position: p.position,
+      orientation: p.orientation,
+    },
+  };
+}
+
 /**
  * Builds the single scene root whose children are one `json` node per loaded file,
- * plus an optional `轨迹` group for TUM polylines.
+ * plus an optional `轨迹` group for TUM polylines and a `图钉` group for user pins.
  */
 export function buildSceneGraphRoot(
   documents: readonly DocumentSceneSlice[],
   tumTrajectories: readonly TumTrajectorySceneSlice[] = [],
+  pins: readonly PinSceneSlice[] = [],
 ): SceneNode {
   const { slots, slotCount } = gridSlotIndexPerDocument(documents);
   const jsonChildren: SceneNode[] = documents.map((d, index) => ({
@@ -133,6 +169,15 @@ export function buildSceneGraphRoot(
       type: "group",
       children: tumTrajectories.map(tumTrajectoryToSceneNode),
       payload: { role: "trajectoryRoot" },
+    });
+  }
+  if (pins.length > 0) {
+    children.push({
+      id: SCENE_PIN_ROOT_ID,
+      name: "图钉",
+      type: "group",
+      children: pins.map(pinToSceneNode),
+      payload: { role: "pinRoot", pinCount: pins.length },
     });
   }
 

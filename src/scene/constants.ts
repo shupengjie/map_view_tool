@@ -14,6 +14,14 @@ export const MAP_FRAME_AXES_NODE_ID = "scene-map-frame-axes";
 /** Fixed id for the infinite ground grid (under scene root). */
 export const SCENE_BACKGROUND_GRID_NODE_ID = "scene-background-grid";
 
+/** Single group under the scene root holding all user-placed pins (lazy: only present when ≥1 pin exists). */
+export const SCENE_PIN_ROOT_ID = "scene-pin-root";
+
+/** Per-pin scene-node id; `pinId` is the monotonic int that also doubles as the user-visible label suffix. */
+export function pinSceneNodeId(pinId: number): string {
+  return `scene-pin-${pinId}`;
+}
+
 /** Wrapper node id for a loaded JSON document (one per file). */
 export function jsonDocumentWrapperId(documentId: string): string {
   return `json-doc-${documentId}`;

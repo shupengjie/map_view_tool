@@ -532,6 +532,55 @@ function PolylineInspector({
   return <PolylineFallbackInspector sourceFile={sourceFile} />;
 }
 
+function PinRootInspector({ node }: { node: SceneNode }) {
+  const payload = (node.payload ?? {}) as Record<string, unknown>;
+  const pinCount =
+    typeof payload.pinCount === "number" ? payload.pinCount : node.children.length;
+  return (
+    <InspectorSection title="图钉根节点">
+      <InspectorRow label="名称">
+        <span className="inspector-value-text">{node.name}</span>
+      </InspectorRow>
+      <InspectorRow label="图钉数量">
+        <span className="inspector-value-num">{formatScalar(pinCount)}</span>
+      </InspectorRow>
+    </InspectorSection>
+  );
+}
+
+function PinNodeInspector({ node }: { node: SceneNode }) {
+  const payload = (node.payload ?? {}) as Record<string, unknown>;
+  const pinId = payload.pinId;
+  const pos = Array.isArray(payload.position) ? (payload.position as readonly number[]) : null;
+  const ori = Array.isArray(payload.orientation)
+    ? (payload.orientation as readonly number[])
+    : null;
+  const fmt = (n: unknown, digits: number) =>
+    typeof n === "number" && Number.isFinite(n) ? n.toFixed(digits) : "—";
+  return (
+    <InspectorSection title="图钉">
+      <InspectorRow label="id">
+        <span className="inspector-value-num">{formatScalar(pinId)}</span>
+      </InspectorRow>
+      <InspectorRow label="名称">
+        <span className="inspector-value-text">{node.name}</span>
+      </InspectorRow>
+      <InspectorRow label="位置 (X 前, Y 左, Z 上)">
+        <span className="inspector-value-mono">
+          {pos ? `(${fmt(pos[0], 6)}, ${fmt(pos[1], 6)}, ${fmt(pos[2], 6)})` : "—"}
+        </span>
+      </InspectorRow>
+      <InspectorRow label="姿态 (qx, qy, qz, qw)">
+        <span className="inspector-value-mono">
+          {ori
+            ? `(${fmt(ori[0], 6)}, ${fmt(ori[1], 6)}, ${fmt(ori[2], 6)}, ${fmt(ori[3], 6)})`
+            : "—"}
+        </span>
+      </InspectorRow>
+    </InspectorSection>
+  );
+}
+
 function GenericInspector({ node, sourceFile }: { node: SceneNode; sourceFile: string | null }) {
   const t = node.transform;
   const payload = node.payload;
@@ -636,6 +685,12 @@ function InspectorContent({
     <div className="inspector-godot">
       {node.type === "mapFrameAxes" || node.type === "sceneBackgroundGrid" ? (
         <div className="inspector-empty">该节点无属性。</div>
+      ) : node.type === "pinAxes" ? (
+        <PinNodeInspector node={node} />
+      ) : node.type === "group" &&
+        node.payload &&
+        (node.payload as Record<string, unknown>).role === "pinRoot" ? (
+        <PinRootInspector node={node} />
       ) : node.type === "group" &&
         node.payload &&
         (node.payload as Record<string, unknown>).role === "layer" &&

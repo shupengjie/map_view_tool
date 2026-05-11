@@ -2,7 +2,7 @@
  * Top toolbar: “加载数据” dropdown — Json地图 / TUM轨迹 / Layer数据 file inputs.
  */
 
-import logoUrl from "@/icons/logo.png";
+import logoUrl from "@/icons/logo.svg";
 import { useEffect, useRef, useState } from "react";
 import { useEditorStore } from "@/store/useEditorStore";
 

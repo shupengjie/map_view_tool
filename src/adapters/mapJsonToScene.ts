@@ -5,11 +5,14 @@
  * `parkingSlots` (centered quads + edges + id label), `pillars` (bottom-centered boxes),
  * `road_links` (per-link color + 道路边界线 left/right polylines), `trajectories` (per-id polyline from `pts` x,y,z).
  *
- * Coordinate mapping: JSON {x,y,z} with x=前, y=左, z=上 (vehicle / map frame).
- * Three.js Y-up scene: X=file x, Y=file z, Z=-file y.
- * Note: negating file y avoids left/right mirroring and keeps handedness consistent in the viewport.
+ * Coordinate frame conversion lives in `@/adapters/mapFrame` — the canonical reference for the
+ * map↔scene basis change. This file imports the helpers and focuses on JSON parsing.
  */
 
+import {
+  mapToScenePoint as mapJsonPointToThreeImpl,
+  mapToSceneDirection as mapJsonDirectionToThreeImpl,
+} from "@/adapters/mapFrame";
 import type { SceneNode, Vec3 } from "@/scene/types";
 import { roadLinkLineColorHex } from "@/utils/roadLinkColors";
 import { Euler, Matrix4, Vector3 } from "three";
@@ -45,24 +48,20 @@ export function isMapJsonRoot(value: unknown): value is Record<string, unknown> 
 }
 
 /**
- * Single point from map file → Three.js scene (Y-up): ground plane XZ, Y = elevation from file z.
+ * Re-exports of `@/adapters/mapFrame` under their historical names. New code should import the
+ * canonical names directly from `mapFrame`; these aliases exist purely to limit migration churn
+ * (many JSON-parsing callsites in this file and adapters use the legacy spelling).
+ *
+ * NB: the legacy conjugation-form `mapJsonQuaternionToThree` has been removed — see
+ * `mapToSceneQuaternion` in `mapFrame.ts` for the now-canonical basis-aligning variant, and
+ * `<MapFrameGroup>` for the React wrapper that consumes it.
  */
 export function mapJsonPointToThree(p: { x: number; y: number; z: number }): Vec3 {
-  return [p.x, p.z, -p.y] as const;
+  return mapJsonPointToThreeImpl(p) as Vec3;
 }
 
-/**
- * Direction vectors use the same permutation as positions (file x,y,z → scene x,z,-y), then unit length.
- */
 export function mapJsonDirectionToThree(d: { x: number; y: number; z: number }): Vec3 {
-  const tx = d.x;
-  const ty = d.z;
-  const tz = -d.y;
-  const len = Math.hypot(tx, ty, tz);
-  if (len < 1e-10) {
-    return [0, 1, 0];
-  }
-  return [tx / len, ty / len, tz / len] as const;
+  return mapJsonDirectionToThreeImpl(d) as Vec3;
 }
 
 /**

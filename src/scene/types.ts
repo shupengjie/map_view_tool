@@ -27,6 +27,7 @@ export interface NodeTransform {
  * - `pillar`: vertical box; `transform.position` = bottom center, `transform.rotation` = base orientation
  * - `mapFrameAxes`: world-origin axes aligned with map/scene frame; viewport-only, not pickable
  * - `sceneBackgroundGrid`: infinite XZ reference grid; viewport-only, not pickable
+ * - `pinAxes`: user-placed pin rendered as a small positive-direction RGB triad; pose lives in `payload`.
  */
 export type SceneNodeType =
   | "root"
@@ -37,7 +38,8 @@ export type SceneNodeType =
   | "parkingSlot"
   | "pillar"
   | "mapFrameAxes"
-  | "sceneBackgroundGrid";
+  | "sceneBackgroundGrid"
+  | "pinAxes";
 
 /**
  * One node in the logical scene tree. Mirrors a subset of what Godot would show in the scene dock.

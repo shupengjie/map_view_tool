@@ -5,7 +5,7 @@
 
 import { parseJsonFileToSceneNodes } from "@/adapters/jsonToScene";
 import { buildSceneGraphRoot } from "@/scene/buildSceneTree";
-import type { TumTrajectorySceneSlice } from "@/scene/buildSceneTree";
+import type { PinSceneSlice, TumTrajectorySceneSlice } from "@/scene/buildSceneTree";
 import { findNodeById, subtreeContainsNodeId } from "@/scene/graphUtils";
 import type { MapRegionItem } from "@/scene/regionMap";
 import { buildRegionIdToNodeIdsMap, extractRegionListFromParsedMap } from "@/scene/regionMap";
@@ -46,6 +46,19 @@ export interface LoadedTumTrajectory {
   readonly pointsScene: readonly Vec3[];
 }
 
+/**
+ * User-placed pin (via 3D viewport tool). Position and quaternion are stored in the **map file frame**
+ * (X 前, Y 左, Z 上) — same convention as `json_map` files. The orientation is a unit quaternion;
+ * the popover validates normality before calling `addPin`, so the store assumes it is valid here.
+ * The Viewport renders via `<MapFrameGroup>`, which delegates the basis change to the canonical
+ * map↔scene helpers in `@/adapters/mapFrame`. No call-site should hand-roll the conversion.
+ */
+export interface PinRecord {
+  readonly id: number;
+  readonly position: readonly [number, number, number];
+  readonly orientation: readonly [number, number, number, number];
+}
+
 const TUM_COLOR_PALETTE = [
   "#e74c3c",
   "#3498db",
@@ -72,16 +85,26 @@ function tumToSceneSlice(t: LoadedTumTrajectory): TumTrajectorySceneSlice {
   };
 }
 
+function pinToSceneSlice(p: PinRecord): PinSceneSlice {
+  return {
+    pinId: p.id,
+    position: p.position,
+    orientation: p.orientation,
+  };
+}
+
 function buildSceneRootFromSlices(
   documents: readonly LoadedJsonDocument[],
   tumTrajectories: readonly LoadedTumTrajectory[],
+  pins: readonly PinRecord[],
 ): SceneNode | null {
-  if (documents.length === 0 && tumTrajectories.length === 0) {
+  if (documents.length === 0 && tumTrajectories.length === 0 && pins.length === 0) {
     return null;
   }
   return buildSceneGraphRoot(
     documents.map((d) => ({ id: d.id, fileName: d.fileName, root: d.root })),
     tumTrajectories.map(tumToSceneSlice),
+    pins.map(pinToSceneSlice),
   );
 }
 
@@ -89,6 +112,10 @@ export interface EditorState {
   readonly documents: readonly LoadedJsonDocument[];
   /** TUM pose files; each becomes a colored polyline under the scene `轨迹` node. */
   readonly tumTrajectories: readonly LoadedTumTrajectory[];
+  /** User-placed pins (3D viewport tool); each is rendered as a small RGB triad under `图钉`. */
+  readonly pins: readonly PinRecord[];
+  /** Monotonic counter for `PinRecord.id`; never decremented (even after future deletes). */
+  readonly nextPinId: number;
   /**
    * Single scene root (`场景`) whose children are `type: "json"` nodes — one per loaded file.
    * Rebuilt whenever documents change.
@@ -179,6 +206,20 @@ export interface EditorState {
    * a fourth click starts a new angle (A only, B/C cleared).
    */
   addMeasureAnglePoint: (p: Vec3) => void;
+  /**
+   * Append a new pin (id auto-assigned via `nextPinId`). Quaternion must be unit-norm — the popover
+   * runs the normality check before calling this; this method does NOT silently re-normalize.
+   */
+  addPin: (pose: {
+    readonly position: readonly [number, number, number];
+    readonly orientation: readonly [number, number, number, number];
+  }) => void;
+  /**
+   * Remove the pin with the given id. The scene root is rebuilt; once `pins` is empty the
+   * `图钉` group node disappears with it (see `buildSceneGraphRoot`). Also clears the current
+   * selection / pending camera focus if they pointed at a node that vanished.
+   */
+  removePin: (pinId: number) => void;
 }
 
 function newDocId(): string {
@@ -370,7 +411,7 @@ async function loadLocalJsonDocumentsByKind(
 
     const documents = [...s.documents, ...newDocs];
     const activeDocumentId = s.activeDocumentId ?? newDocs[0]!.id;
-    const sceneGraphRoot = buildSceneRootFromSlices(documents, s.tumTrajectories);
+    const sceneGraphRoot = buildSceneRootFromSlices(documents, s.tumTrajectories, s.pins);
     const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
     const dupNote =
       skippedDuplicate.length > 0 ? `（已跳过重复文件：${skippedDuplicate.join("、")}）` : "";
@@ -396,6 +437,8 @@ async function loadLocalJsonDocumentsByKind(
 export const useEditorStore = create<EditorState>((set, get) => ({
   documents: [],
   tumTrajectories: [],
+  pins: [],
+  nextPinId: 0,
   sceneGraphRoot: null,
   activeDocumentId: null,
   selectedNodeId: null,
@@ -502,7 +545,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
 
       const tumTrajectories = [...s.tumTrajectories, ...newItems];
-      const sceneGraphRoot = buildSceneRootFromSlices(s.documents, tumTrajectories);
+      const sceneGraphRoot = buildSceneRootFromSlices(s.documents, tumTrajectories, s.pins);
       const roadLinksPointRenderMode = pruneRoadLinksPointModes(s.roadLinksPointRenderMode, sceneGraphRoot);
       const dupNote =
         skippedDuplicate.length > 0 ? `（已跳过同名文件：${skippedDuplicate.join("、")}）` : "";
@@ -527,7 +570,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   removeDocument: (documentId) => {
     set((s) => {
       const documents = s.documents.filter((d) => d.id !== documentId);
-      const sceneGraphRoot = buildSceneRootFromSlices(documents, s.tumTrajectories);
+      const sceneGraphRoot = buildSceneRootFromSlices(documents, s.tumTrajectories, s.pins);
       let activeDocumentId = s.activeDocumentId;
       if (activeDocumentId === documentId) {
         activeDocumentId = documents[0]?.id ?? null;
@@ -558,7 +601,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   removeTumTrajectory: (tumId) => {
     set((s) => {
       const tumTrajectories = s.tumTrajectories.filter((t) => t.id !== tumId);
-      const sceneGraphRoot = buildSceneRootFromSlices(s.documents, tumTrajectories);
+      const sceneGraphRoot = buildSceneRootFromSlices(s.documents, tumTrajectories, s.pins);
       let selectedNodeId = s.selectedNodeId;
       if (sceneGraphRoot && selectedNodeId) {
         if (!findNodeById(sceneGraphRoot, selectedNodeId)) {
@@ -637,6 +680,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       documents: [],
       tumTrajectories: [],
+      pins: [],
+      nextPinId: 0,
       sceneGraphRoot: null,
       activeDocumentId: null,
       selectedNodeId: null,
@@ -737,6 +782,55 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return { measureAnglePointC: p };
       }
       return { measureAnglePointA: p, measureAnglePointB: null, measureAnglePointC: null };
+    });
+  },
+
+  addPin: (pose) => {
+    set((s) => {
+      const newPin: PinRecord = {
+        id: s.nextPinId,
+        position: [pose.position[0], pose.position[1], pose.position[2]] as const,
+        orientation: [
+          pose.orientation[0],
+          pose.orientation[1],
+          pose.orientation[2],
+          pose.orientation[3],
+        ] as const,
+      };
+      const pins = [...s.pins, newPin];
+      const sceneGraphRoot = buildSceneRootFromSlices(s.documents, s.tumTrajectories, pins);
+      return {
+        pins,
+        nextPinId: s.nextPinId + 1,
+        sceneGraphRoot,
+      };
+    });
+  },
+
+  removePin: (pinId) => {
+    set((s) => {
+      const pins = s.pins.filter((p) => p.id !== pinId);
+      if (pins.length === s.pins.length) {
+        return s;
+      }
+      const sceneGraphRoot = buildSceneRootFromSlices(s.documents, s.tumTrajectories, pins);
+      let selectedNodeId = s.selectedNodeId;
+      let cameraFocusRequest = s.cameraFocusRequest;
+      if (selectedNodeId) {
+        const stillExists = sceneGraphRoot ? findNodeById(sceneGraphRoot, selectedNodeId) : null;
+        if (!stillExists) {
+          selectedNodeId = null;
+          cameraFocusRequest = null;
+        }
+      }
+      const hiddenNodeIds = pruneHiddenIdsForGraph(new Set(s.hiddenNodeIds), sceneGraphRoot);
+      return {
+        pins,
+        sceneGraphRoot,
+        selectedNodeId,
+        cameraFocusRequest,
+        hiddenNodeIds,
+      };
     });
   },
 }));

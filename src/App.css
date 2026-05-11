@@ -533,6 +533,115 @@
   color: #fff;
 }
 
+/* Pin tool popover: anchored to the left of the pin button. */
+.viewport-toolbar-fab-tool-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.viewport-pin-popover {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 10px);
+  transform: translate(0, -50%);
+  pointer-events: auto;
+  z-index: 40;
+  min-width: 280px;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(45, 45, 45, 0.98);
+  border: 1px solid var(--godot-border);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: var(--godot-text);
+  animation: viewport-pin-popover-in 0.14s ease-out both;
+  will-change: transform, opacity;
+}
+
+@keyframes viewport-pin-popover-in {
+  from {
+    opacity: 0;
+    transform: translate(8px, -50%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+
+.viewport-pin-popover-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--godot-text-dim);
+}
+
+.viewport-pin-popover-row {
+  display: flex;
+  gap: 6px;
+}
+
+.viewport-pin-popover-field {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  background: var(--godot-bg-input);
+  border: 1px solid var(--godot-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.viewport-pin-popover-field:focus-within {
+  border-color: var(--godot-border-focus);
+}
+
+.viewport-pin-popover-field-label {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--godot-text-dim);
+  background: var(--godot-bg-panel-raised);
+  border-right: 1px solid var(--godot-border);
+  user-select: none;
+}
+
+.viewport-pin-popover-input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  padding: 4px 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--godot-text);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.viewport-pin-popover-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.viewport-pin-popover-error {
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #ffb4b4;
+  background: rgba(110, 38, 38, 0.45);
+  border: 1px solid rgba(220, 70, 70, 0.6);
+  border-radius: 2px;
+}
+
 .viewport-measure-hint {
   position: absolute;
   left: 50%;
@@ -619,7 +728,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 4px 2px 4px;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   font-size: 12px;
   font-family: var(--font-ui);
@@ -686,12 +795,74 @@
   color: var(--godot-text-dim);
 }
 
+.tree-row-body-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 4px;
+  margin: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-row-body-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tree-row-selected .tree-row-body-btn {
+  color: inherit;
+}
+
+.tree-row-selected .tree-row-body-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .tree-row-label {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tree-trash-btn {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--godot-text-dim);
+  cursor: pointer;
+}
+
+.tree-trash-btn:hover {
+  color: #ff8585;
+  background: rgba(255, 80, 80, 0.14);
+}
+
+.tree-row-selected .tree-trash-btn {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.tree-row-selected .tree-trash-btn:hover {
+  color: #fff;
+  background: rgba(255, 90, 90, 0.32);
+}
+
+.tree-trash-svg {
+  display: block;
 }
 
 .tree-eye-btn {
@@ -701,7 +872,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: auto;
   padding: 0;
   border: none;
   border-radius: 2px;
@@ -727,7 +897,6 @@
   flex: 0 0 28px;
   width: 28px;
   height: 22px;
-  margin-left: auto;
 }
 
 .tree-eye-svg {

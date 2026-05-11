@@ -1,9 +1,21 @@
 /**
  * Left-top panel: hierarchical scene tree for the combined scene (场景根 → JSON 节点 → 内容).
- * Click row sets global selection (same id as Three.js `userData.nodeId` on meshes).
- * Non-root rows include a right-aligned eye control for 3D viewport visibility.
+ *
+ * Row layout — three independent buttons, none nested inside another:
+ *   [chevron]  [node-body]  ([trash])  [eye]
+ *
+ * Click semantics:
+ *   - chevron        → expand/collapse only.
+ *   - node-body      → select (highlight + property panel). Camera focus only when the node is a
+ *                       leaf AND visible (own toggle, region filter, and inherited from ancestors).
+ *   - trash (pins)   → remove that pin (last pin gone → 图钉 root group also goes).
+ *   - eye            → toggle viewport visibility only.
+ *
+ * Clicks on the row's dead space (indent, gaps) do nothing on purpose; the three buttons are the
+ * sole interactive surfaces.
  */
 
+import { TreeTrashButton } from "@/components/TreeTrashButton";
 import { TreeVisibilityEye } from "@/components/TreeVisibilityEye";
 import { SCENE_ROOT_ID } from "@/scene/constants";
 import { findPathToNodeId } from "@/scene/graphUtils";
@@ -30,16 +42,32 @@ function isHiddenByRegionFilter(node: SceneNode, activeRegionFilterId: number | 
   return typeof pr === "number" && pr !== activeRegionFilterId;
 }
 
+/** Coerce a payload field that should hold a pin id. Returns null if the value is missing or non-finite. */
+function pinIdFromNode(node: SceneNode): number | null {
+  if (node.type !== "pinAxes") {
+    return null;
+  }
+  const raw = node.payload?.pinId;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 interface TreeRowsProps {
   readonly node: SceneNode;
   readonly depth: number;
   readonly expanded: Set<string>;
   readonly onToggle: (id: string) => void;
   readonly selectedId: string | null;
-  readonly onSelect: (id: string) => void;
+  readonly onSelect: (id: string, focus: boolean) => void;
   readonly hiddenNodeIds: ReadonlySet<string>;
   readonly activeRegionFilterId: number | null;
   readonly onToggleViewportVisibility: (id: string) => void;
+  readonly onRemovePin: (pinId: number) => void;
+  /**
+   * True iff some ancestor is currently hidden in the viewport (own eye-off OR region-filter mismatch).
+   * Used together with the row's own state to decide whether camera focus should run on select.
+   */
+  readonly ancestorHidden: boolean;
 }
 
 function TreeRows({
@@ -52,6 +80,8 @@ function TreeRows({
   hiddenNodeIds,
   activeRegionFilterId,
   onToggleViewportVisibility,
+  onRemovePin,
+  ancestorHidden,
 }: TreeRowsProps) {
   const hasChildren = node.children.length > 0;
   const isOpen = expanded.has(node.id);
@@ -61,6 +91,12 @@ function TreeRows({
   const hiddenByRegion = isHiddenByRegionFilter(node, activeRegionFilterId);
   const dimInTree = hiddenInView || hiddenByRegion;
   const viewportVisible = !hiddenInView;
+  // Effective visibility includes inherited ancestor state: an item under a hidden parent is not
+  // actually drawn, so focusing the camera on it would land in empty space.
+  const effectivelyHidden = ancestorHidden || dimInTree;
+  const canFocus = !hasChildren && !effectivelyHidden;
+  const isSelected = selectedId === node.id;
+  const pinId = pinIdFromNode(node);
 
   return (
     <>
@@ -68,12 +104,9 @@ function TreeRows({
         role="treeitem"
         data-tree-node-id={node.id}
         aria-expanded={hasChildren ? isOpen : undefined}
-        className={`tree-row ${selectedId === node.id ? "tree-row-selected" : ""} ${dimInTree ? "tree-row-viewport-hidden" : ""}`}
+        aria-selected={isSelected}
+        className={`tree-row ${isSelected ? "tree-row-selected" : ""} ${dimInTree ? "tree-row-viewport-hidden" : ""}`}
         style={{ paddingLeft: 6 + pad }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect(node.id);
-        }}
       >
         {hasChildren ? (
           <button
@@ -84,7 +117,6 @@ function TreeRows({
             onClick={(e) => {
               e.stopPropagation();
               onToggle(node.id);
-              onSelect(node.id);
             }}
           >
             <span className="tree-chevron" aria-hidden>
@@ -96,9 +128,26 @@ function TreeRows({
             ·
           </span>
         )}
-        <span className="tree-row-label">
-          [{node.type}] {node.name}
-        </span>
+        <button
+          type="button"
+          className="tree-row-body-btn"
+          aria-pressed={isSelected}
+          title={node.name}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(node.id, canFocus);
+          }}
+        >
+          <span className="tree-row-label">
+            [{node.type}] {node.name}
+          </span>
+        </button>
+        {pinId !== null ? (
+          <TreeTrashButton
+            title={`删除该图钉（图钉${pinId}）`}
+            onConfirm={() => onRemovePin(pinId)}
+          />
+        ) : null}
         {!isSceneRoot ? (
           <TreeVisibilityEye
             visible={viewportVisible}
@@ -121,6 +170,8 @@ function TreeRows({
               hiddenNodeIds={hiddenNodeIds}
               activeRegionFilterId={activeRegionFilterId}
               onToggleViewportVisibility={onToggleViewportVisibility}
+              onRemovePin={onRemovePin}
+              ancestorHidden={effectivelyHidden}
             />
           ))
         : null}
@@ -135,11 +186,14 @@ export function SceneTreePanel() {
   const hiddenNodeIds = useEditorStore((s) => s.hiddenNodeIds);
   const activeRegionFilterId = useEditorStore((s) => s.activeRegionFilterId);
   const toggleViewportVisibility = useEditorStore((s) => s.toggleViewportVisibility);
+  const removePin = useEditorStore((s) => s.removePin);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const selectFromTree = useCallback(
-    (id: string) => {
-      setSelectedNodeId(id, true);
+    (id: string, focus: boolean) => {
+      // `setSelectedNodeId(id, fromTree)` doubles as "request camera focus" when fromTree=true;
+      // group nodes and hidden nodes pass focus=false so only highlight + inspector update.
+      setSelectedNodeId(id, focus);
     },
     [setSelectedNodeId],
   );
@@ -227,6 +281,8 @@ export function SceneTreePanel() {
           hiddenNodeIds={hiddenNodeIds}
           activeRegionFilterId={activeRegionFilterId}
           onToggleViewportVisibility={toggleViewportVisibility}
+          onRemovePin={removePin}
+          ancestorHidden={false}
         />
       </div>
     </div>
