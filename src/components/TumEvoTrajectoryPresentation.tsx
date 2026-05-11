@@ -261,6 +261,15 @@ function TumEvoSeriesErrorTable({
             <th scope="col" title="P(|e − 均值| ≤ 3·σ)">
               3σ 占比
             </th>
+            <th scope="col" title="在标准正态假设下，均值 ± 1·σ 所覆盖的误差范围">
+              1σ 范围
+            </th>
+            <th scope="col" title="在标准正态假设下，均值 ± 2·σ 所覆盖的误差范围">
+              2σ 范围
+            </th>
+            <th scope="col" title="在标准正态假设下，均值 ± 3·σ 所覆盖的误差范围">
+              3σ 范围
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -279,6 +288,15 @@ function TumEvoSeriesErrorTable({
             <td>{fmtEmpiricalSigmaProb(stats.pWithin1Sigma)}</td>
             <td>{fmtEmpiricalSigmaProb(stats.pWithin2Sigma)}</td>
             <td>{fmtEmpiricalSigmaProb(stats.pWithin3Sigma)}</td>
+            <td>
+              [{valueFmt(stats.mean - stats.std)}, {valueFmt(stats.mean + stats.std)}]
+            </td>
+            <td>
+              [{valueFmt(stats.mean - 2 * stats.std)}, {valueFmt(stats.mean + 2 * stats.std)}]
+            </td>
+            <td>
+              [{valueFmt(stats.mean - 3 * stats.std)}, {valueFmt(stats.mean + 3 * stats.std)}]
+            </td>
           </tr>
         </tbody>
       </table>
